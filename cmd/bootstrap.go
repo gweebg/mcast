@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/gweebg/mcast/internal/bootstrap"
+	"github.com/gweebg/mcast/internal/utils"
 )
 
 func main() {
@@ -11,6 +12,7 @@ func main() {
 		":20001",
 	)
 
+	utils.PrintStruct(bs.Config)
 	bs.Listen()
 
 }

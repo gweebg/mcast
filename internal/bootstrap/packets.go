@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"bytes"
 	"encoding/gob"
-	"net"
 )
 
 type FlagType uint8
@@ -21,7 +20,7 @@ type PacketHeader struct {
 
 type Packet struct {
 	Header  PacketHeader
-	Payload []net.IP
+	Payload Node
 }
 
 func (p Packet) Encode() ([]byte, error) {

@@ -2,30 +2,70 @@ package bootstrap
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
-	"net"
+	"net/netip"
 	"os"
 )
 
-func MustParse(filename string) NeighbourDatabase {
+type NodeType string
+
+const (
+	Client          NodeType = "client"
+	Server          NodeType = "server"
+	RendezvousPoint NodeType = "rendezvous"
+)
+
+type Node struct {
+	Type       NodeType         `json:"type"`
+	SelfPort   uint16           `json:"selfPort"`
+	Neighbours []netip.AddrPort `json:"neighbours"`
+}
+
+type Nodes map[netip.Addr]Node
+
+type Config struct {
+	NodeGroup Nodes `json:"nodes"`
+}
+
+func MustParse(filename string) Config {
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		log.Fatalf("Could not read file '%s'\n", filename)
 	}
 
-	var db NeighbourDatabase
-	err = json.Unmarshal(data, &db)
+	var cfg Config
+	err = json.Unmarshal(data, &cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	for key, _ := range db {
-		val := net.ParseIP(key)
-		if val == nil {
-			log.Fatalf("| invalid IP address: %v\n", key)
-		}
+	err = checkConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	return db
+	return cfg
 }
+
+func checkConfig(c Config) error {
+
+	for _, v := range c.NodeGroup {
+		if !(v.Type == Client || v.Type == Server || v.Type == RendezvousPoint) {
+			return errors.New("invalid 'type' value, type must be client | rendezvous | server")
+		}
+	}
+	return nil
+}
+
+//func (c Config) Print() {
+//
+//	for key, v := range c.NodeGroup {
+//		fmt.Printf("%v:\n", key)
+//		fmt.Printf("\ttype: %v\n", v.Type)
+//		fmt.Printf("\tport: %v\n", v.SelfPort)
+//		fmt.Printf("\tneigh: %v\n", v.Neighbours)
+//	}
+//
+//}

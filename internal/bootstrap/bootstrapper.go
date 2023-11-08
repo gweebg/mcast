@@ -2,25 +2,32 @@ package bootstrap
 
 import (
 	"errors"
+	"github.com/gweebg/mcast/internal/utils"
 	"log"
 	"net"
-	"strings"
+	"net/netip"
 )
 
-type NeighbourDatabase map[string][]net.IP
-
 type Bootstrap struct {
-	Neighbours NeighbourDatabase // no need for mutex since its readonly
-	Address    string
-	QuitCh     chan struct{}
+	Config  Config // no need for mutex since its readonly
+	Address string
 }
 
 func New(filename, address string) *Bootstrap {
 	return &Bootstrap{
-		Neighbours: MustParse(filename),
-		Address:    address,
-		QuitCh:     make(chan struct{}),
+		Config:  MustParse(filename),
+		Address: address,
 	}
+}
+
+func (b *Bootstrap) GetNode(addr netip.Addr) (Node, error) {
+
+	if node, exists := b.Config.NodeGroup[addr]; exists {
+		return node, nil
+	}
+
+	// gob cannot encode nil values, so we set the default for a Node
+	return Node{}, errors.New("no records found for " + addr.String())
 }
 
 func (b *Bootstrap) Listen() {
@@ -76,43 +83,17 @@ func (b *Bootstrap) handle(conn net.Conn) {
 		rflag = ERR
 	}
 
-	r, err := b.GetRecords(conn.RemoteAddr())
+	addr := utils.MustNormalizeAddr(conn.RemoteAddr()) // conn.RemoteAddr as a netip.Addr
+
+	r, err := b.GetNode(addr)
 	if err != nil {
 		log.Printf("(%v) %v\n", rAddr, err)
-		r = make([]net.IP, 0) // gob cannot encode nil values, so we set the default for an empty slice
 	}
 
-	resp := Packet{
-		Header: PacketHeader{
-			Flag:  rflag,
-			Count: uint(len(r)),
-		},
-		Payload: r,
-	} // response packet
-
-	encResp, err := resp.Encode()
-	if err != nil {
-		log.Fatal("cannot encode response packet")
-	}
-
-	s, err := conn.Write(encResp)
-	if err != nil {
-		log.Fatal("could not reply to client")
-	}
-	log.Printf("(%v) responded with %v bytes\n", rAddr, s)
-
-}
-
-func (b *Bootstrap) GetRecords(addr net.Addr) (r []net.IP, err error) {
-
-	parsedAddr := strings.Split(addr.String(), ":")[0]
-	r, ok := b.Neighbours[parsedAddr]
-
+	ok := answer(r, rflag, conn)
 	if !ok {
-		err = errors.New("no records stored for " + parsedAddr)
+		log.Fatalf("error while encoding or sending the response")
 	}
-
-	return r, err
 }
 
 func decodeAndCheckPacket(data []byte) (p Packet, err error) {
@@ -127,4 +108,30 @@ func decodeAndCheckPacket(data []byte) (p Packet, err error) {
 	} // Does the packet 'make sense?'
 
 	return p, err
+}
+
+func answer(node Node, flag FlagType, conn net.Conn) bool {
+
+	resp := Packet{
+		Header: PacketHeader{
+			Flag:  flag,
+			Count: uint(len(node.Neighbours)),
+		},
+		Payload: node,
+	} // response packet
+
+	encResp, err := resp.Encode()
+	if err != nil {
+		log.Print("cannot encode response packet")
+		return false
+	}
+
+	s, err := conn.Write(encResp)
+	if err != nil {
+		log.Print("cannot write to socket")
+		return false
+	}
+
+	log.Printf("(%v) responded with %v bytes\n", conn.RemoteAddr().String(), s)
+	return true
 }
