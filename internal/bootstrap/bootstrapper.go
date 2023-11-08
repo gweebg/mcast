@@ -34,13 +34,13 @@ func (b *Bootstrap) Listen() {
 
 	l, err := net.Listen("tcp", b.Address)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err.Error())
 	}
 
 	defer func(l net.Listener) {
 		err := l.Close()
 		if err != nil {
-			log.Fatal("Could not close the connection.")
+			log.Fatal("could not close the connection.")
 		}
 	}(l) // Closing the connection once the function ends.
 
@@ -48,7 +48,7 @@ func (b *Bootstrap) Listen() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(err.Error())
 		}
 
 		go b.handle(conn)
