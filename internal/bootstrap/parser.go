@@ -58,14 +58,3 @@ func checkConfig(c Config) error {
 	}
 	return nil
 }
-
-//func (c Config) Print() {
-//
-//	for key, v := range c.NodeGroup {
-//		fmt.Printf("%v:\n", key)
-//		fmt.Printf("\ttype: %v\n", v.Type)
-//		fmt.Printf("\tport: %v\n", v.SelfPort)
-//		fmt.Printf("\tneigh: %v\n", v.Neighbours)
-//	}
-//
-//}

@@ -83,6 +83,7 @@ func (b *Bootstrap) handle(conn net.Conn) {
 		rflag = ERR
 	}
 
+	// todo: skip db check if rflag already ERR
 	addr := utils.MustNormalizeAddr(conn.RemoteAddr()) // conn.RemoteAddr as a netip.Addr
 
 	r, err := b.GetNode(addr)
