@@ -6,6 +6,8 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os"
+	"reflect"
 )
 
 func MustNormalizeAddr(addr net.Addr) (newAddr netip.Addr) {
@@ -33,4 +35,25 @@ func PrintStruct(s interface{}) {
 	}
 	fmt.Printf("%s\n", string(sJson))
 
+}
+
+func MustParseJson[T any](path string, validator func(T) bool) T {
+
+	var result T
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalf("file %s does not exists or is not acessible in the current path\n", path)
+	}
+
+	err = json.Unmarshal(data, &result)
+	if err != nil {
+		log.Fatalf("error while parsing json %s\n", err.Error())
+	}
+
+	if !validator(result) {
+		log.Fatalf("json object is not valid for type %v\n", reflect.TypeOf(result))
+	}
+
+	return result
 }
