@@ -2,10 +2,22 @@ package bootstrap
 
 import (
 	"errors"
-	"github.com/gweebg/mcast/internal/utils"
 	"log"
+
 	"net"
 	"net/netip"
+
+	"github.com/gweebg/mcast/internal/flags"
+	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/utils"
+)
+
+type Packet = packets.BasePacket[Node]
+
+const (
+	SEND flags.FlagType = 0b1
+	ERR  flags.FlagType = 0b10
+	GET  flags.FlagType = 0b100
 )
 
 type Bootstrap struct {
@@ -15,7 +27,7 @@ type Bootstrap struct {
 
 func New(filename, address string) *Bootstrap {
 	return &Bootstrap{
-		Config:  MustParse(filename),
+		Config:  utils.MustParseJson[Config](filename, ValidateConfig),
 		Address: address,
 	}
 }
@@ -58,7 +70,7 @@ func (b *Bootstrap) Listen() {
 func (b *Bootstrap) handle(conn net.Conn) {
 
 	rAddr := conn.RemoteAddr().String()
-	rflag := SND // response flag
+	rflag := SEND // response flag
 
 	log.Printf("(%v) new client connected \n", rAddr)
 
@@ -99,29 +111,28 @@ func (b *Bootstrap) handle(conn net.Conn) {
 
 func decodeAndCheckPacket(data []byte) (p Packet, err error) {
 
-	p, err = Decode(data) // p, holds the data from the client.
+	p, err = packets.Decode[Node](data) // p, holds the data from the client.
 	if err != nil {
 		err = errors.New("could not decode packet, skipping")
 	} // Trying to decode the packet from the client.
 
-	if p.Header.Flag != GET {
+	if !p.Header.Flag.OnlyHasFlag(GET) {
 		err = errors.New("no GET flag on packet header, skipping")
 	} // Does the packet 'make sense?'
 
 	return p, err
 }
 
-func answer(node Node, flag FlagType, conn net.Conn) bool {
+func answer(node Node, flag flags.FlagType, conn net.Conn) bool {
 
 	resp := Packet{
-		Header: PacketHeader{
-			Flag:  flag,
-			Count: uint(len(node.Neighbours)),
+		Header: packets.PacketHeader{
+			Flag: flag,
 		},
 		Payload: node,
 	} // response packet
 
-	encResp, err := resp.Encode()
+	encResp, err := packets.Encode[Node](packets.BasePacket[Node](resp))
 	if err != nil {
 		log.Print("cannot encode response packet")
 		return false
