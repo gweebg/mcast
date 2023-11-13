@@ -1,29 +1,21 @@
-package bootstrap
+package packets
 
 import (
 	"bytes"
 	"encoding/gob"
-)
-
-type FlagType uint8
-
-const (
-	GET FlagType = iota
-	SND
-	ERR
+	"github.com/gweebg/mcast/internal/flags"
 )
 
 type PacketHeader struct {
-	Flag  FlagType
-	Count uint
+	Flag flags.FlagType
 }
 
-type Packet struct {
+type BasePacket[T any] struct {
 	Header  PacketHeader
-	Payload Node
+	Payload T
 }
 
-func (p Packet) Encode() ([]byte, error) {
+func Encode[T any](p BasePacket[T]) ([]byte, error) {
 
 	buf := new(bytes.Buffer) // using bytes.Buffer because implements io.Writer/Reader
 	enc := gob.NewEncoder(buf)
@@ -36,12 +28,12 @@ func (p Packet) Encode() ([]byte, error) {
 
 }
 
-func Decode(data []byte) (Packet, error) {
+func Decode[T any](data []byte) (BasePacket[T], error) {
 
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 
-	var p Packet
+	var p BasePacket[T]
 
 	if err := dec.Decode(&p); err != nil {
 		return p, err
