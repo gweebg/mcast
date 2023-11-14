@@ -37,7 +37,7 @@ func PrintStruct(s interface{}) {
 
 }
 
-func MustParseJson[T any](path string, validator func(T) bool) T {
+func MustParseJson[T any](path string, validator ...func(T) bool) T {
 
 	var result T
 
@@ -51,8 +51,20 @@ func MustParseJson[T any](path string, validator func(T) bool) T {
 		log.Fatalf("error while parsing json %s\n", err.Error())
 	}
 
-	if !validator(result) {
-		log.Fatalf("json object is not valid for type %v\n", reflect.TypeOf(result))
+	switch len(validator) {
+
+	case 1: // one validator function is passed
+		if !validator[0](result) {
+			log.Fatalf("json object is not valid for type %v\n", reflect.TypeOf(result))
+		}
+		break
+
+	case 0: // no validator function is passed
+		break
+
+	default: // more than one validator function is passed
+		log.Fatalf("only one validator function is accepted, but got %d\n", len(validator))
+
 	}
 
 	return result
