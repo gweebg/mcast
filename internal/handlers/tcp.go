@@ -3,10 +3,11 @@ package handlers
 import (
 	"log"
 	"net"
+	"net/netip"
 )
 
 type TCPHandle func(net.Conn, ...interface{})
-type TCPListen func(string, TCPHandle)
+type TCPListen func(netip.AddrPort, TCPHandle)
 
 type TCPConn struct {
 	Handle TCPHandle
@@ -53,9 +54,9 @@ func WithHandleTCP(h ...TCPHandle) func(*TCPConn) {
 	}
 }
 
-func defaultTCPListen(addr string, handle TCPHandle) {
+func defaultTCPListen(addr netip.AddrPort, handle TCPHandle) {
 
-	l, err := net.Listen("tcp", addr)
+	l, err := net.Listen("tcp", addr.String())
 	if err != nil {
 		log.Fatal(err.Error())
 	}

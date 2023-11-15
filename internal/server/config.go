@@ -16,6 +16,7 @@ func fileExists(path string) bool {
 }
 
 func ValidateConfig(obj Config) bool {
+
 	for _, val := range obj.Content {
 		if !fileExists(val) {
 			return false

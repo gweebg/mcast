@@ -1,28 +1,12 @@
 package main
 
 import (
-	svr "github.com/gweebg/mcast/internal/server"
-	"log"
-	"os"
-	"os/signal"
+	"github.com/gweebg/mcast/internal/server"
 )
 
 func main() {
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-
-	log.Println("Server is up and running!")
-
-	var server *svr.Server = svr.NewServer("udp", ":1053")
-
-	go func() {
-		for range c {
-			close(server.QuitCh)
-			log.Fatal("Shutting down!")
-		}
-	}()
-
-	server.Listen()
+	srv := server.NewServer("127.0.0.1:20010", "./docs/server_config.json")
+	srv.Run()
 
 }
