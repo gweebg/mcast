@@ -1,13 +1,14 @@
 package handlers
 
 import (
+	"github.com/gweebg/mcast/internal/utils"
 	"log"
 	"net"
 	"net/netip"
 )
 
 type TCPHandle func(net.Conn, ...interface{})
-type TCPListen func(netip.AddrPort, TCPHandle)
+type TCPListen func(netip.AddrPort, TCPHandle, ...interface{})
 
 type TCPConn struct {
 	Handle TCPHandle
@@ -54,12 +55,10 @@ func WithHandleTCP(h ...TCPHandle) func(*TCPConn) {
 	}
 }
 
-func defaultTCPListen(addr netip.AddrPort, handle TCPHandle) {
+func defaultTCPListen(addr netip.AddrPort, handle TCPHandle, va ...interface{}) {
 
 	l, err := net.Listen("tcp", addr.String())
-	if err != nil {
-		log.Fatal(err.Error())
-	}
+	utils.Check(err)
 
 	defer func(l net.Listener) {
 		err := l.Close()
@@ -71,11 +70,9 @@ func defaultTCPListen(addr netip.AddrPort, handle TCPHandle) {
 	log.Printf("(%v) server is listening...\n", addr)
 	for {
 		conn, err := l.Accept()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
+		utils.Check(err)
 
-		go handle(conn) // handle the request
+		go handle(conn, va...) // handle the request
 	}
 
 }
@@ -83,24 +80,14 @@ func defaultTCPListen(addr netip.AddrPort, handle TCPHandle) {
 func defaultTCPHandle(conn net.Conn, va ...interface{}) {
 
 	addrString := conn.RemoteAddr().String()
-
 	log.Printf("(%v) new client connected\n", addrString)
 
-	defer func(conn net.Conn) {
-		err := conn.Close()
-		if err != nil {
-			log.Fatalf("could not close the connection at %v\n", addrString)
-		}
-		log.Printf("(%v) closed connection\n", addrString)
-	}(conn) // defer the closing of the connection.
+	defer utils.CloseConnection(conn, addrString)
 
 	// read the connection for incoming data.
 	buffer := make([]byte, 1024)
 	_, err := conn.Read(buffer)
-	if err != nil {
-		log.Fatalf("could not read from %v\n", addrString)
-	}
+	utils.Check(err)
 
 	// do nothing with the read data since this is pretty much dummy function
-
 }

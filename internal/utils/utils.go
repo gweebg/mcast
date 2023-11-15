@@ -72,8 +72,12 @@ func MustParseJson[T any](path string, validator ...func(T) bool) T {
 
 func CloseConnection(conn net.Conn, addr string) {
 	err := conn.Close()
+	Check(err)
+	log.Printf("(%v) closed connection\n", addr)
+}
+
+func Check(err error) {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	log.Printf("(%v) closed connection\n", addr)
 }
