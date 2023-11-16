@@ -1,4 +1,11 @@
 {
-  "content": [],
+  "content": [
+    {
+      "name": "videoA.mp4",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30
+    }
+  ],
   "throughput": 65536
 }

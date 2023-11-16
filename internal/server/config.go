@@ -5,9 +5,16 @@ import (
 	"os"
 )
 
+type ConfigItem struct {
+	Name   string
+	Width  uint
+	Height uint
+	FPS    uint
+}
+
 type Config struct {
-	Content    []string `json:"content"`
-	Throughput uint     `json:"throughput"`
+	Content    []ConfigItem `json:"content"`
+	Throughput uint         `json:"throughput"`
 }
 
 func fileExists(path string) bool {
@@ -18,7 +25,7 @@ func fileExists(path string) bool {
 func ValidateConfig(obj Config) bool {
 
 	for _, val := range obj.Content {
-		if !fileExists(val) {
+		if !fileExists(val.Name) {
 			return false
 		}
 	}
