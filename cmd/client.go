@@ -1,35 +1,49 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
 	"log"
 	"net"
+
+	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/server"
+	"github.com/gweebg/mcast/internal/utils"
 )
 
 func main() {
-
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:1053")
+	servAddr := "127.0.0.1:20010"
+	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
 	if err != nil {
-		log.Fatal("Could not parse UDP address.")
+		log.Fatalf(err.Error())
 	}
 
-	conn, err := net.DialUDP("udp", nil, addr)
+	packet := packets.BasePacket[string]{
+		Header: packets.PacketHeader{
+			Flag: server.WAKE,
+		},
+	}
+	p, err := packets.Encode[string](packet)
 	if err != nil {
-		log.Fatalf("Could not connect to %s\n", addr.String())
+		log.Fatal(err.Error())
+	}
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	if err != nil {
+		log.Fatalf(err.Error())
 	}
 
-	_, err = conn.Write([]byte("Ping"))
+	_, err = conn.Write(p)
 	if err != nil {
-		log.Fatal("Could not write to server.")
+		log.Fatalf(err.Error())
 	}
 
-	data, err := bufio.NewReader(conn).ReadString('\n')
+	buffer := make([]byte, 1024)
+	_, err = conn.Read(buffer)
 	if err != nil {
-		fmt.Println(err)
-		return
+		log.Fatalf(err.Error())
 	}
 
-	fmt.Print("> ", string(data))
-
+	recv, err := packets.Decode[[]server.ConfigItem](buffer)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	utils.PrintStruct(recv)
 }
