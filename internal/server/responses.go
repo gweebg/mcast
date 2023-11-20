@@ -10,9 +10,9 @@ func ContentInfoPacket(c []ConfigItem) packets.BasePacket[[]ConfigItem] {
 	}
 }
 
-func ContentAccessPacket(p uint64) packets.BasePacket[uint64] {
+func ContentPortPacket(p int) packets.BasePacket[int] {
 
-	return packets.BasePacket[uint64]{
+	return packets.BasePacket[int]{
 		Header:  packets.PacketHeader{Flag: CSND},
 		Payload: p,
 	}

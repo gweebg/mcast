@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"os"
 )
 
@@ -19,7 +18,11 @@ type Config struct {
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
-	return errors.Is(err, os.ErrNotExist)
+	if err != nil {
+		return false
+	}
+
+	return true
 }
 
 func ValidateConfig(obj Config) bool {

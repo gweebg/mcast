@@ -1,7 +1,7 @@
 {
   "content": [
     {
-      "name": "videoA.mp4",
+      "name": "resources/videos/simpsons.mp4",
       "width": 1920,
       "height": 1080,
       "fps": 30
