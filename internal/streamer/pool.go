@@ -41,6 +41,7 @@ func (p *StreamingPool) Add(addr string, s *Streamer) error {
 		return err
 	}
 
+	p.Pool[addr] = make(ContentMap)
 	err := p.Pool[addr].AddEntry(s)
 	return err
 

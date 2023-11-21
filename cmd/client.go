@@ -1,49 +1,149 @@
 package main
 
 import (
-	"log"
+	"io"
 	"net"
+	"os"
+	"os/exec"
+	"strconv"
+	"time"
 
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
 )
 
-func main() {
-	servAddr := "127.0.0.1:20010"
-	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-
-	packet := packets.BasePacket[string]{
+var (
+	WakePacket packets.BasePacket[string] = packets.BasePacket[string]{
 		Header: packets.PacketHeader{
 			Flag: server.WAKE,
 		},
 	}
-	p, err := packets.Encode[string](packet)
-	if err != nil {
-		log.Fatal(err.Error())
+
+	ReqPacket packets.BasePacket[string] = packets.BasePacket[string]{
+		Header: packets.PacketHeader{
+			Flag: server.REQ,
+		},
+		Payload: "simpsons.mp4",
 	}
+
+	OkPacket packets.BasePacket[string] = packets.BasePacket[string]{
+		Header: packets.PacketHeader{
+			Flag: server.OK,
+		},
+	}
+
+	StopPacket packets.BasePacket[string] = packets.BasePacket[string]{
+		Header: packets.PacketHeader{
+			Flag: server.STOP,
+		},
+		Payload: "simpsons.mp4",
+	}
+)
+
+func main() {
+	servAddr := "127.0.0.1:20010"
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
+	utils.Check(err)
+
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
+	utils.Check(err)
+
+	/* Wake Packet */
+
+	p, err := packets.Encode[string](WakePacket)
+	utils.Check(err)
 
 	_, err = conn.Write(p)
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
+	utils.Check(err)
 
 	buffer := make([]byte, 1024)
-	_, err = conn.Read(buffer)
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
+	n, err := conn.Read(buffer)
+	utils.Check(err)
 
-	recv, err := packets.Decode[[]server.ConfigItem](buffer)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
+	recv, err := packets.Decode[[]server.ConfigItem](buffer[:n])
+	utils.Check(err)
+
 	utils.PrintStruct(recv)
+
+	/* Req Packet */
+
+	p, err = packets.Encode[string](ReqPacket)
+	utils.Check(err)
+
+	_, err = conn.Write(p)
+	utils.Check(err)
+
+	n, err = conn.Read(buffer)
+	utils.Check(err)
+
+	resp, err := packets.Decode[int](buffer[:n])
+	utils.Check(err)
+
+	utils.PrintStruct(resp)
+
+	/* Ok Packet */
+
+	streamingPort := strconv.FormatInt(int64(resp.Payload), 10)
+	streamingAddr := "127.0.0.1" + ":" + streamingPort
+
+	addr, err := net.ResolveUDPAddr("udp", streamingAddr)
+	utils.Check(err)
+
+	udpConn, err := net.ListenUDP("udp", addr)
+	utils.Check(err)
+
+	defer conn.Close()
+
+	// start ffplay command
+	ffplayCmd := exec.Command("ffplay", "-")
+	ffplayStdin, err := ffplayCmd.StdinPipe()
+	utils.Check(err)
+
+	ffplayCmd.Stdout = os.Stdout
+	ffplayCmd.Stderr = os.Stderr
+
+	// Start ffplay process
+	err = ffplayCmd.Start()
+	utils.Check(err)
+
+	// Goroutine for continuously reading and writing MPEG TS packets to ffplay
+	go func() {
+		buffer := make([]byte, 188*10) // 188 bytes per MPEG TS packet
+		for {
+			n, _, err := udpConn.ReadFromUDP(buffer)
+			if err != nil {
+				if err != io.EOF {
+					panic(err)
+				}
+				break
+			}
+
+			_, err = ffplayStdin.Write(buffer[:n])
+			if err != nil {
+				panic(err)
+			}
+		}
+	}()
+
+	// Wait for ffplay to finish
+	//err = ffplayCmd.Wait()
+
+	p, err = packets.Encode[string](OkPacket)
+	utils.Check(err)
+
+	_, err = conn.Write(p)
+	utils.Check(err)
+
+	time.Sleep(20 * time.Second)
+
+	p, err = packets.Encode[string](StopPacket)
+	utils.Check(err)
+
+	_, err = conn.Write(p)
+	utils.Check(err)
+
+	err = ffplayCmd.Wait()
+	utils.Check(err)
 }

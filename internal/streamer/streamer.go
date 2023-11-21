@@ -137,7 +137,7 @@ func (s *Streamer) cleanup(cmd *exec.Cmd, close bool) {
 // Firstly sets up the mpeg-ts resources, then streams the content via udp to via conn.
 func (s *Streamer) Stream() {
 
-	s.IsStreaming = true
+	s.IsStreaming = true // todo: not updating ?
 
 	ts := s.SetupVideo()
 
@@ -187,7 +187,7 @@ func (s *Streamer) Stream() {
 				return
 			}
 
-			log.Printf("sent packet #%d (%d bytes)\n", seq, size)
+			// log.Printf("sent packet #%d (%d bytes)\n", seq, size)
 			seq++
 		}
 	}

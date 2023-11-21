@@ -120,7 +120,7 @@ func (s *Server) OnWake(conn net.Conn) {
 	size, err := conn.Write(encPac) // send the packet
 	utils.Check(err)
 
-	log.Printf("(%v) answered with packet 'CONT' (%d bytes)\n", remote, size)
+	log.Printf("(%v) answered with packet 'CSND' (%d bytes)\n", remote, size)
 }
 
 // OnContent handles the request 'REQ' from the client.
@@ -151,7 +151,7 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 
 	// get the address where to stream the video
 	portString := strconv.FormatInt(int64(port), 10)
-	streamAddr := s.Address.Addr().String() + portString // todo: check this value
+	streamAddr := s.Address.Addr().String() + ":" + portString
 	log.Printf("(%v) setting up streaming at '%v'\n", remote, streamAddr)
 
 	response := make([]byte, 1024) // receiving the clients response
@@ -163,7 +163,7 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 
 	if recvPack.Header.Flag.OnlyHasFlag(OK) {
 
-		log.Printf("(%v) received response with header 'REQ'\n", remote)
+		log.Printf("(%v) received response with header 'OK'\n", remote)
 
 		// create and initialize the streamer object responsible for the content streaming
 		stmr := streamer.New(
