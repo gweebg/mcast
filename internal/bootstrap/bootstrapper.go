@@ -3,13 +3,12 @@ package bootstrap
 import (
 	"errors"
 	"log"
-
-	"net"
-	"net/netip"
+	"strings"
 
 	"github.com/gweebg/mcast/internal/flags"
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
+	"net"
 )
 
 type Packet = packets.BasePacket[Node]
@@ -32,14 +31,16 @@ func New(filename, address string) *Bootstrap {
 	}
 }
 
-func (b *Bootstrap) GetNode(addr netip.Addr) (Node, error) {
+func (b *Bootstrap) GetNode(addrPort string) (Node, error) {
+
+	addr := strings.Split(addrPort, ":")[0]
 
 	if node, exists := b.Config.NodeGroup[addr]; exists {
 		return node, nil
 	}
 
 	// gob cannot encode nil values, so we set the default for a Node
-	return Node{}, errors.New("no records found for " + addr.String())
+	return Node{}, errors.New("no records found for " + addr)
 }
 
 func (b *Bootstrap) Listen() {
@@ -84,19 +85,19 @@ func (b *Bootstrap) handle(conn net.Conn) {
 
 	// read the connection for incoming data.
 	buffer := make([]byte, 1024)
-	_, err := conn.Read(buffer)
+	size, err := conn.Read(buffer)
 	if err != nil {
 		log.Fatalf("could not read from %v\n", rAddr)
 	}
 
-	_, err = decodeAndCheckPacket(buffer) // p, holds the data from the client.
+	_, err = decodeAndCheckPacket(buffer[:size]) // p, holds the data from the client.
 	if err != nil {
 		log.Printf("(%v) %v\n", rAddr, err)
 		rflag = ERR
 	}
 
 	// todo: skip db check if rflag already ERR
-	addr := utils.MustNormalizeAddr(conn.RemoteAddr()) // conn.RemoteAddr as a netip.Addr
+	addr := conn.RemoteAddr().String() // conn.RemoteAddr as a netip.Addr
 
 	r, err := b.GetNode(addr)
 	if err != nil {
@@ -109,9 +110,9 @@ func (b *Bootstrap) handle(conn net.Conn) {
 	}
 }
 
-func decodeAndCheckPacket(data []byte) (p Packet, err error) {
+func decodeAndCheckPacket(data []byte) (p packets.BasePacket[string], err error) {
 
-	p, err = packets.Decode[Node](data) // p, holds the data from the client.
+	p, err = packets.Decode[string](data) // p, holds the data from the client.
 	if err != nil {
 		err = errors.New("could not decode packet, skipping")
 	} // Trying to decode the packet from the client.

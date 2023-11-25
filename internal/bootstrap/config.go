@@ -19,7 +19,7 @@ type Node struct {
 	Neighbours []netip.AddrPort `json:"neighbours"`
 }
 
-type Nodes map[netip.Addr]Node
+type Nodes map[string]Node
 
 type Config struct {
 	NodeGroup Nodes `json:"nodes"`
