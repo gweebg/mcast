@@ -81,3 +81,10 @@ func Check(err error) {
 		log.Fatalf(err.Error())
 	}
 }
+
+func PacificCheck(err error) {
+	if err != nil {
+		log.Println(err.Error())
+		return
+	}
+}

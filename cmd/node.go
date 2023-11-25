@@ -1,11 +1,26 @@
 package main
 
-import "github.com/gweebg/mcast/internal/node"
-
+import (
+	"github.com/google/uuid"
+	"github.com/gweebg/mcast/internal/node"
+	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/utils"
+	"log"
+)
 
 func main() {
-    // todo: change bootstrapAddr to arg
-    bootstrapAddr := "127.0.0.1:20001"
-    node := node.New(bootstrapAddr)
-    node.Run()
+
+	bootstrapAddr := "127.0.0.1:20001"
+	n := node.New(bootstrapAddr)
+
+	utils.PrintStruct(n.Self)
+
+	discovery := packets.Discovery(uuid.New(), "simpsons.mp4")
+	first, exists := n.Flooder.Flood(discovery)
+
+	if exists {
+		utils.PrintStruct(first)
+	} else {
+		log.Panicln("no response")
+	}
 }

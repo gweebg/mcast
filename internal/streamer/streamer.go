@@ -71,7 +71,7 @@ func (s *Streamer) encodeTransportStream() (err error) {
 	log.Printf("encoding video '%v' into transport stream...\n", s.ContentName)
 	ffmpeg := exec.Command("ffmpeg",
 		"-i", s.contentPath,
-		"-c:v", "mpeg2video", "-c:a", "mp2",
+		"-c:v", "libx264", "-c:a", "mp2",
 		s.transportStreamPath,
 	)
 
@@ -149,7 +149,7 @@ func (s *Streamer) Stream() {
 	}(ts)
 
 	// used to sync the mpeg-ts packets with realtime (1s realtime matching with 1s video)
-	sync := exec.Command("ffplay", "-nodisp", "-af", "volume=0.0", "-")
+	sync := exec.Command("ffplay", "-af", "volume=0.0", "-f", "mpegts", "-nodisp", "-")
 
 	syncIn, err := sync.StdinPipe()
 	utils.Check(err)
@@ -175,12 +175,12 @@ func (s *Streamer) Stream() {
 				seq = 0 // set sequence to 0
 			} // loop over the video once we reach the end
 
-			_, err = syncIn.Write(buffer)
+			_, err = syncIn.Write(buffer[:size])
 			if err != nil {
-				log.Println("broken pipe on syncIn")
+				break
 			}
 
-			size, err = s.conn.Write(buffer[:size])
+			_, err = s.conn.Write(buffer[:size])
 			if err != nil {
 				log.Printf("lost connection with '%v'\n", s.Address)
 				s.cleanup(sync, false)

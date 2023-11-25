@@ -1,16 +1,15 @@
 package main
 
 import (
+	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/server"
+	"github.com/gweebg/mcast/internal/utils"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"time"
-
-	"github.com/gweebg/mcast/internal/packets"
-	"github.com/gweebg/mcast/internal/server"
-	"github.com/gweebg/mcast/internal/utils"
 )
 
 var (
@@ -97,7 +96,7 @@ func main() {
 	defer conn.Close()
 
 	// start ffplay command
-	ffplayCmd := exec.Command("ffplay", "-")
+	ffplayCmd := exec.Command("ffplay", "-f", "mpegts", "-")
 	ffplayStdin, err := ffplayCmd.StdinPipe()
 	utils.Check(err)
 
@@ -127,8 +126,7 @@ func main() {
 		}
 	}()
 
-	// Wait for ffplay to finish
-	//err = ffplayCmd.Wait()
+	time.Sleep(100 * time.Millisecond)
 
 	p, err = packets.Encode[string](OkPacket)
 	utils.Check(err)
@@ -136,14 +134,6 @@ func main() {
 	_, err = conn.Write(p)
 	utils.Check(err)
 
-	time.Sleep(20 * time.Second)
-
-	p, err = packets.Encode[string](StopPacket)
-	utils.Check(err)
-
-	_, err = conn.Write(p)
-	utils.Check(err)
-
 	err = ffplayCmd.Wait()
-	utils.Check(err)
+
 }
