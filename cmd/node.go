@@ -21,6 +21,6 @@ func main() {
 	if exists {
 		utils.PrintStruct(first)
 	} else {
-		log.Panicln("no response")
+		log.Println("no response")
 	}
 }

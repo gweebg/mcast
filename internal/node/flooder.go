@@ -19,22 +19,39 @@ func NewFlooder(n []netip.AddrPort) Flooder {
 
 // Flood sends a specialized message to each neighbour only taking
 // into account the first answer to arrive, ignoring the others.
-func (f Flooder) Flood(packet packets.Packet) (packets.Packet, bool) {
+func (f Flooder) Flood(packet packets.Packet, ignore ...netip.AddrPort) (packets.Packet, bool) {
+
+	neighbours := f.Neighbours
+	if len(ignore) == 1 {
+		neighbours = filterNeighbour(ignore[0], neighbours)
+	}
 
 	var wg sync.WaitGroup
 
 	response := make(chan packets.Packet)
 	done := make(chan struct{})
 
-	for _, neighbour := range f.Neighbours {
+	for _, neighbour := range neighbours {
 		wg.Add(1)
 		go f.sendTo(neighbour, packet, &wg, response, done)
 	}
 
+	go func() {
+		wg.Wait()
+		close(response)
+	}() // wait until waitgroup finishes
+
 	select {
 	case res := <-response:
-		return res, true // Return the first response received
+
+		if res.Header.Flags.OnlyHasFlag(0) {
+			return res, false
+		}
+
+		return res, true // return the first correct response
+
 	case <-done:
+		log.Println("case <-done")
 		return packets.Packet{}, false
 	}
 
@@ -78,12 +95,30 @@ func (f Flooder) sendTo(dest netip.AddrPort, content packets.Packet, wg *sync.Wa
 	utils.Check(err)
 
 	// updating response state
-	select {
+	if resp.Header.Flags.OnlyHasFlag(packets.DISC) {
+		select {
 
-	case response <- resp:
-		close(done)
+		case response <- resp:
+			close(done) // update response state
 
-	default:
-		// we do nothing
+		default:
+			// another response arrived first
+		}
+	} else {
+		return
 	}
+
+}
+
+// filterNeighbour removes from the slice the element that's equal to neighbour
+func filterNeighbour(neighbour netip.AddrPort, neighbourSlice []netip.AddrPort) []netip.AddrPort {
+
+	var result []netip.AddrPort
+	for _, addrPort := range neighbourSlice {
+		if addrPort != neighbour {
+			result = append(result, addrPort)
+		}
+	}
+	return result
+
 }
