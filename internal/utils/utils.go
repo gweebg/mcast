@@ -5,27 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/netip"
 	"os"
 	"reflect"
 )
-
-func MustNormalizeAddr(addr net.Addr) (newAddr netip.Addr) {
-
-	tcp, err := net.ResolveTCPAddr("tcp", addr.String())
-	if err != nil {
-		log.Fatalf("cannot resolve (parse) address '%v'\n", addr.String())
-	}
-
-	ip := tcp.IP
-	newAddr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		fmt.Println("Failed to convert net.IP to netip.Addr")
-		log.Fatalf("cannot convert '%v' from net.IP to netip.Addr", addr.String())
-	}
-
-	return newAddr
-}
 
 func PrintStruct(s interface{}) {
 
@@ -79,12 +61,5 @@ func CloseConnection(conn net.Conn, addr string) {
 func Check(err error) {
 	if err != nil {
 		log.Fatalf(err.Error())
-	}
-}
-
-func PacificCheck(err error) {
-	if err != nil {
-		log.Println(err.Error())
-		return
 	}
 }

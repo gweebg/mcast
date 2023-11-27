@@ -2,10 +2,12 @@ package node
 
 import (
 	"errors"
+	"github.com/google/uuid"
 	"github.com/gweebg/mcast/internal/bootstrap"
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
 	"net"
+	"sync"
 )
 
 const ReadSize = 1024
@@ -45,4 +47,33 @@ func setupSelf(bootstrapAddr string) (bootstrap.Node, error) {
 	}
 
 	return bootstrap.Node{}, errors.New("expected flag SEND from bootstrapper, but received another")
+}
+
+/* ----------------------------------------------------------------------------- */
+
+type RequestDb struct {
+	data map[uuid.UUID]bool
+	mu   sync.RWMutex
+}
+
+func NewRequestDb() *RequestDb {
+	return &RequestDb{
+		data: make(map[uuid.UUID]bool),
+	}
+}
+
+func (r *RequestDb) IsHandled(id uuid.UUID) bool {
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	_, exists := r.data[id]
+	return exists
+}
+
+func (r *RequestDb) Set(id uuid.UUID, state bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.data[id] = state
 }

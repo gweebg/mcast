@@ -44,14 +44,13 @@ func (f Flooder) Flood(packet packets.Packet, ignore ...netip.AddrPort) (packets
 	select {
 	case res := <-response:
 
-		if res.Header.Flags.OnlyHasFlag(0) {
+		if res.Header.Flags.OnlyHasFlag(packets.MISS) {
 			return res, false
 		}
 
 		return res, true // return the first correct response
 
 	case <-done:
-		log.Println("case <-done")
 		return packets.Packet{}, false
 	}
 
@@ -95,7 +94,7 @@ func (f Flooder) sendTo(dest netip.AddrPort, content packets.Packet, wg *sync.Wa
 	utils.Check(err)
 
 	// updating response state
-	if resp.Header.Flags.OnlyHasFlag(packets.DISC) {
+	if resp.Header.Flags.OnlyHasFlag(packets.FOUND) {
 		select {
 
 		case response <- resp:

@@ -11,9 +11,7 @@ import (
 func main() {
 
 	bootstrapAddr := "127.0.0.1:20001"
-	n := node.New(bootstrapAddr)
-
-	utils.PrintStruct(n.Self)
+	n := node.New(bootstrapAddr, ":5000")
 
 	discovery := packets.Discovery(uuid.New(), "simpsons.mp4")
 	first, exists := n.Flooder.Flood(discovery)

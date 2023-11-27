@@ -3,14 +3,14 @@ package packets
 import (
 	"bytes"
 	"encoding/gob"
-	"github.com/gweebg/mcast/internal/flags"
-
 	"github.com/google/uuid"
+	"github.com/gweebg/mcast/internal/flags"
 )
 
 type Header struct {
 	Flags     flags.FlagType
 	RequestId uuid.UUID
+	Source    string
 	Hops      uint64
 }
 
@@ -53,7 +53,9 @@ func DecodePacket(data []byte) (Packet, error) {
 }
 
 const (
-	DISC flags.FlagType = 0b1
+	DISC  flags.FlagType = 0b1
+	FOUND flags.FlagType = 0b10
+	MISS  flags.FlagType = 0b100
 )
 
 func Discovery(requestId uuid.UUID, contentName string) Packet {
@@ -69,4 +71,37 @@ func Discovery(requestId uuid.UUID, contentName string) Packet {
 			Port:        "",
 		},
 	}
+}
+
+func Found(requestId uuid.UUID, contentName string, source string) Packet {
+
+	return Packet{
+		Header: Header{
+			Flags:     FOUND,
+			RequestId: requestId,
+			Hops:      0,
+			Source:    source,
+		},
+		Payload: Payload{
+			ContentName: contentName,
+			Port:        "",
+		},
+	}
+
+}
+
+func Miss(requestId uuid.UUID, contentName string) Packet {
+
+	return Packet{
+		Header: Header{
+			Flags:     MISS,
+			RequestId: requestId,
+			Hops:      0,
+		},
+		Payload: Payload{
+			ContentName: contentName,
+			Port:        "",
+		},
+	}
+
 }
