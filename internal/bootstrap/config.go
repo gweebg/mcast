@@ -15,7 +15,7 @@ const (
 
 type Node struct {
 	Type       NodeType         `json:"type"`
-	SelfPort   uint16           `json:"selfPort"`
+	SelfIp     string           `json:"self"`
 	Neighbours []netip.AddrPort `json:"neighbours"`
 }
 
