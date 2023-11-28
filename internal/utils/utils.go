@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"strings"
 )
 
 func PrintStruct(s interface{}) {
@@ -62,4 +63,9 @@ func Check(err error) {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
+}
+
+func ReplacePortFromAddressString(address string, port string) string {
+	split := strings.Split(address, ":")
+	return split[0] + ":" + port
 }

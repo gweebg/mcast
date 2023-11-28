@@ -22,10 +22,12 @@ type Relay struct {
 	receiver *net.UDPConn
 	// Slice containing the addresses (as *UDPAddr) to forward the bytes to.
 	Addresses []*net.UDPAddr
+	// Default port for forwarding addresses.
+	Port string
 }
 
 // NewRelay creates a new Relay object.
-func NewRelay(contentName string, origin string) *Relay {
+func NewRelay(contentName string, origin string, port string) *Relay {
 
 	addr, err := net.ResolveUDPAddr("udp", origin)
 	utils.Check(err)
@@ -38,6 +40,7 @@ func NewRelay(contentName string, origin string) *Relay {
 		Addresses:   make([]*net.UDPAddr, 0),
 		Origin:      origin,
 		receiver:    conn,
+		Port:        port,
 	}
 }
 
@@ -64,6 +67,7 @@ func (r *Relay) Add(address string) error {
 	utils.Check(err)
 
 	r.Addresses = append(r.Addresses, asUdp)
+	log.Printf("added '%v' to relaying group of content '%v'\n", address, r.ContentName)
 	return nil
 
 }
@@ -71,6 +75,7 @@ func (r *Relay) Add(address string) error {
 // Loop reads a UDP stream from Origin and forwards it to the addresses specified in Addresses.
 func (r *Relay) Loop() {
 
+	log.Printf("forwarding video '%v' with origin at '%v'\n", r.ContentName, r.Origin)
 	buffer := make([]byte, streamer.TsMtu*10)
 	for {
 
@@ -85,7 +90,7 @@ func (r *Relay) Loop() {
 			for _, addr := range r.Addresses {
 				_, err := r.receiver.WriteToUDP(buffer[:n], addr)
 				if err != nil {
-					log.Printf("cannot relay packets to %v\n", addr.String())
+					// log.Printf("cannot relay packets to %v\n", addr.String())
 					continue
 				}
 			}

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"github.com/google/uuid"
 	"github.com/gweebg/mcast/internal/bootstrap"
 	"github.com/gweebg/mcast/internal/handlers"
@@ -36,6 +37,9 @@ type Node struct {
 	// positive, keeps track of received FOUND packets
 	Positive map[uuid.UUID]string
 	pMu      sync.RWMutex
+
+	// each relay has a port
+	CurrentPort uint64
 }
 
 // New creates a new instance of a *Node.
@@ -103,6 +107,10 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		case packets.DISC:
 			node.OnDiscovery(p, conn)
+
+		case packets.STREAM:
+			node.OnStream(p, conn)
+
 		}
 	}
 
@@ -122,6 +130,15 @@ func (n *Node) SetPositive(requestId uuid.UUID, source string) {
 	n.Positive[requestId] = source
 }
 
+func (n *Node) IsPositive(requestId uuid.UUID) (string, bool) {
+
+	n.pMu.RLock()
+	defer n.pMu.RUnlock()
+
+	source, exists := n.Positive[requestId]
+	return source, exists
+}
+
 // IsStreaming checks whether the current node is streaming a certain content
 // by its contentName.
 func (n *Node) IsStreaming(contentName string) bool {
@@ -132,4 +149,24 @@ func (n *Node) IsStreaming(contentName string) bool {
 		return true
 	}
 	return false
+}
+
+func (n *Node) AddRelay(contentName string, relay *Relay) error {
+
+	n.rMu.Lock()
+	defer n.rMu.Unlock()
+
+	_, exists := n.RelayPool[contentName]
+	if exists {
+		return errors.New("relay for content '" + contentName + "' already exists.")
+	}
+
+	n.RelayPool[contentName] = relay
+	return nil
+}
+
+func (n *Node) NextPort() uint64 {
+	port := n.CurrentPort
+	n.CurrentPort++
+	return port
 }

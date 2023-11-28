@@ -56,6 +56,10 @@ const (
 	DISC  flags.FlagType = 0b1
 	FOUND flags.FlagType = 0b10
 	MISS  flags.FlagType = 0b100
+
+	STREAM flags.FlagType = 0b1000
+	PORT   flags.FlagType = 0b10000
+	OK     flags.FlagType = 0b100000
 )
 
 func Discovery(requestId uuid.UUID, contentName string) Packet {
@@ -101,6 +105,22 @@ func Miss(requestId uuid.UUID, contentName string) Packet {
 		Payload: Payload{
 			ContentName: contentName,
 			Port:        "",
+		},
+	}
+
+}
+
+func Port(requestId uuid.UUID, contentName string, port string) Packet {
+
+	return Packet{
+		Header: Header{
+			Flags:     PORT,
+			RequestId: requestId,
+			Hops:      0,
+		},
+		Payload: Payload{
+			ContentName: contentName,
+			Port:        port,
 		},
 	}
 
