@@ -9,12 +9,13 @@ import (
 	"github.com/gweebg/mcast/internal/handlers"
 	"github.com/gweebg/mcast/internal/node"
 	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
 )
 
-// Falta: 
+// Falta:
 //      comunicacao inicial com os servidores
-//      relay quando chega um pedido de streaming 
+//      relay quando chega um pedido de streaming
 
 // ouve tcp:
 //   recebe um pedido de discovery -> responde yes
@@ -33,7 +34,8 @@ type ServerInfo struct {
 	PacketLoss uint64
 	Jitter     float32
 	Latency    float32
-	Content    []string
+	Content    []server.ConfigItem
+	Conn       *net.TCPConn
 }
 
 func NewServers(addrs []string) Servers {
@@ -49,14 +51,15 @@ type Rendezvous struct {
 	// ao server e.g. {Fonte:S1; Métrica: 1; Conteúdos: [movie1.mp4, video4.ogg], Estado: ativa }
 	Address netip.AddrPort
 	Servers Servers
+	sMu     sync.RWMutex
 
 	Requests *node.RequestDb
 
 	// relay pool, keeps track of receiving streams and who are we relaying them to
-	RelayPool map[string]*node.Relay
-	rMu       sync.RWMutex
-    CurrentPort uint16
-    
+	RelayPool   map[string]*node.Relay
+	rMu         sync.RWMutex
+	CurrentPort uint16
+
 	TCPHandler handlers.TCPConn
 }
 
@@ -79,7 +82,7 @@ func New(addrString string, servers ...string) *Rendezvous {
 
 // Run starts the main listening loop and passes each connection to Handler.
 func (r *Rendezvous) Run() {
-
+	setupServers()
 	r.TCPHandler.Listen(
 		r.Address,
 		r.TCPHandler.Handle,
@@ -118,13 +121,59 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		case packets.DISC:
 			rendezvous.OnDiscovery(p, conn)
-        case packets.STREAM:
-            rendezvous.OnStream(p,conn)
+		case packets.STREAM:
+			rendezvous.OnStream(p, conn)
+		case server.CSND:
+			// todo:
 		}
 
 	}
 
 }
+
+func (r *Rendezvous) connectToServer(servAddr string) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
+	utils.Check(err)
+
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	utils.Check(err)
+
+	/* Wake Packet */
+	wakePacket := packets.Wake()
+	p, err := packets.Encode[string](wakePacket)
+	utils.Check(err)
+
+	_, err = conn.Write(p)
+	utils.Check(err)
+
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	utils.Check(err)
+
+	recv, err := packets.Decode[[]server.ConfigItem](buffer[:n])
+	utils.Check(err)
+
+	log.Printf("recieved %v from %v", recv.Payload, servAddr)
+
+	r.sMu.Lock()
+	_, exists := r.Servers[servAddr]
+
+	if !exists {
+		r.Servers[servAddr].Content = recv.Payload
+        r.Servers[servAddr].Conn = conn
+	}
+	r.sMu.Unlock()
+
+	// todo: go routine que lanca a funcao que calcula a latencia
+
+}
+
+func (r *Rendezvous) setupServers(serverAddrs []string) {
+	for _, servAddr := range serverAddrs {
+		r.connectToServer(servAddr)
+	}
+}
+
 // IsStreaming checks whether the current node is streaming a certain content
 // by its contentName.
 func (r *Rendezvous) IsStreaming(contentName string) bool {
@@ -140,17 +189,14 @@ func (r *Rendezvous) IsStreaming(contentName string) bool {
 // ContentExists checks if a provided content is available in any of the active
 // servers.
 func (r *Rendezvous) ContentExists(contentName string) bool {
-    for k, s := range r.Servers {
-        for _, c := range s.Content{
-            if c == contentName {
-                log.Printf("Found %v in server %v",contentName, k)
-                return true
-            }
-        }
-    }
-    log.Printf("%v is not available in any of the active servers.",contentName) 
-    return false
+	for k, s := range r.Servers {
+		for _, c := range s.Content {
+			if c == contentName {
+				log.Printf("Found %v in server %v", contentName, k)
+				return true
+			}
+		}
+	}
+	log.Printf("%v is not available in any of the active servers.", contentName)
+	return false
 }
-
-
-

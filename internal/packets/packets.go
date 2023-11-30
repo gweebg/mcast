@@ -3,7 +3,9 @@ package packets
 import (
 	"bytes"
 	"encoding/gob"
+
 	"github.com/gweebg/mcast/internal/flags"
+	"github.com/gweebg/mcast/internal/server"
 )
 
 type PacketHeader struct {
@@ -41,4 +43,38 @@ func Decode[T any](data []byte) (BasePacket[T], error) {
 
 	return p, nil
 
+}
+
+func Wake() BasePacket[string] {
+	return BasePacket[string]{
+		Header: PacketHeader{
+			Flag: server.WAKE,
+		},
+	}
+}
+
+func Request(contentName string) BasePacket[string] {
+	return BasePacket[string]{
+		Header: PacketHeader{
+			Flag: server.REQ,
+		},
+		Payload: contentName,
+	}
+}
+
+func Ok() BasePacket[string] {
+	return BasePacket[string]{
+		Header: PacketHeader{
+			Flag: server.OK,
+		},
+	}
+}
+
+func Stop(contentName string) BasePacket[string] {
+	return BasePacket[string]{
+		Header: PacketHeader{
+			Flag: server.STOP,
+		},
+		Payload: contentName,
+	}
 }
