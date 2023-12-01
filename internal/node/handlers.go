@@ -9,18 +9,6 @@ import (
 	"strconv"
 )
 
-func reply(response packets.Packet, conn net.Conn) {
-
-	enc, err := response.Encode()
-	utils.Check(err)
-
-	_, err = conn.Write(enc)
-	if err != nil {
-		log.Printf("(handlers.go) could not write to '%v'\n", conn.RemoteAddr().String())
-	}
-
-}
-
 func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	/*
 		did I handle the packet ? (check requestId in db)
@@ -158,6 +146,18 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 			conn,
 		)
 		return
+	}
+
+}
+
+func reply(response packets.Packet, conn net.Conn) {
+
+	enc, err := response.Encode()
+	utils.Check(err)
+
+	_, err = conn.Write(enc)
+	if err != nil {
+		log.Printf("(handlers.go) could not write to '%v'\n", conn.RemoteAddr().String())
 	}
 
 }

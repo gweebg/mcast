@@ -6,8 +6,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"reflect"
 	"strings"
+	"time"
 )
 
 func PrintStruct(s interface{}) {
@@ -68,4 +70,75 @@ func Check(err error) {
 func ReplacePortFromAddressString(address string, port string) string {
 	split := strings.Split(address, ":")
 	return split[0] + ":" + port
+}
+
+func SendAndWait(content []byte, conn net.Conn) []byte {
+
+	_, err := conn.Write(content)
+	Check(err)
+
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	Check(err)
+
+	return buffer[:n]
+}
+
+func SetupConnection(network string, address string) net.Conn {
+
+	conn, err := net.Dial(network, address)
+	Check(err)
+
+	return conn
+}
+
+func ListenStream(address string) {
+
+	TsMtu := 188
+
+	addr, err := net.ResolveUDPAddr("udp", address)
+	Check(err)
+
+	udpConn, err := net.ListenUDP("udp", addr)
+	Check(err)
+
+	defer func(udpConn *net.UDPConn) {
+		Check(udpConn.Close())
+	}(udpConn)
+
+	// create ffplay process
+	ffplay := exec.Command("ffplay", "-f", "mpegts", "-")
+
+	ffplay.Stdout = os.Stdout
+	ffplay.Stderr = os.Stderr
+
+	stdin, err := ffplay.StdinPipe()
+	Check(err)
+
+	// start ffplay process
+	err = ffplay.Start()
+	Check(err)
+
+	// goroutine for continuously reading and writing MPEG TS packets to ffplay
+	go func() {
+
+		buffer := make([]byte, TsMtu*10) // 188 bytes per MPEG TS packet
+
+		for {
+
+			n, _, err := udpConn.ReadFromUDP(buffer)
+			if err != nil {
+				log.Printf("stop receiving stream from '%v', exitting\n", address)
+				break
+			}
+
+			_, err = stdin.Write(buffer[:n])
+			Check(err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	err = ffplay.Wait()
+	Check(err)
 }

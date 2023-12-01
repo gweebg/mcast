@@ -38,8 +38,6 @@ func (p Packet) Encode() ([]byte, error) {
 
 func DecodePacket(data []byte) (Packet, error) {
 
-	// todo: bloated, make this as much generic as possible
-
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 
@@ -59,7 +57,6 @@ const (
 
 	STREAM flags.FlagType = 0b1000
 	PORT   flags.FlagType = 0b10000
-	OK     flags.FlagType = 0b100000
 )
 
 func Discovery(requestId uuid.UUID, contentName string) Packet {
@@ -121,6 +118,22 @@ func Port(requestId uuid.UUID, contentName string, port string) Packet {
 		Payload: Payload{
 			ContentName: contentName,
 			Port:        port,
+		},
+	}
+
+}
+
+func Stream(requestId uuid.UUID, contentName string) Packet {
+
+	return Packet{
+		Header: Header{
+			Flags:     STREAM,
+			RequestId: requestId,
+			Hops:      0,
+		},
+		Payload: Payload{
+			ContentName: contentName,
+			Port:        "",
 		},
 	}
 

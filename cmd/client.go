@@ -1,139 +1,79 @@
 package main
 
 import (
+	"flag"
+	"log"
+	"net/netip"
+
+	"github.com/google/uuid"
+
 	"github.com/gweebg/mcast/internal/packets"
-	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
-	"io"
-	"net"
-	"os"
-	"os/exec"
-	"strconv"
-	"time"
-)
-
-var (
-	WakePacket packets.BasePacket[string] = packets.BasePacket[string]{
-		Header: packets.PacketHeader{
-			Flag: server.WAKE,
-		},
-	}
-
-	ReqPacket packets.BasePacket[string] = packets.BasePacket[string]{
-		Header: packets.PacketHeader{
-			Flag: server.REQ,
-		},
-		Payload: "simpsons.mp4",
-	}
-
-	OkPacket packets.BasePacket[string] = packets.BasePacket[string]{
-		Header: packets.PacketHeader{
-			Flag: server.OK,
-		},
-	}
-
-	StopPacket packets.BasePacket[string] = packets.BasePacket[string]{
-		Header: packets.PacketHeader{
-			Flag: server.STOP,
-		},
-		Payload: "simpsons.mp4",
-	}
 )
 
 func main() {
-	servAddr := "127.0.0.1:20010"
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
+	neighbour := flag.String("neighbour", "", "address of the a network node neighbour")
+	content := flag.String("content", "video.mp4", "specify what content to playback")
+
+	flag.Parse()
+
+	if *content == "video.mp4" {
+		log.Printf("no content name specificed, defaulting to '%v'", *content)
+	}
+
+	if *neighbour == "" {
+		log.Fatalf("neighbour address is mandatory to run the client")
+	}
+
+	_, err := netip.ParseAddrPort(*neighbour)
 	utils.Check(err)
 
-	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	// discovery phase - send discovery packet, get response, check if found or not
+
+	clientUuid := uuid.New()
+	log.Printf("created client id %v\n", clientUuid)
+
+	conn := utils.SetupConnection("tcp", *neighbour)
+	log.Printf("connected with neighbout '%v' via tcp\n", *neighbour)
+
+	packet, err := packets.Discovery(clientUuid, *content).Encode()
 	utils.Check(err)
 
-	/* Wake Packet */
+	resultBytes := utils.SendAndWait(packet, conn)
+	log.Printf("received response for discovery request, decoding...\n")
 
-	p, err := packets.Encode[string](WakePacket)
+	result, err := packets.DecodePacket(resultBytes)
 	utils.Check(err)
 
-	_, err = conn.Write(p)
+	if result.Header.Flags != packets.FOUND {
+		log.Printf("content '%v' is not available in the network\n", *content)
+		utils.CloseConnection(conn, *neighbour)
+		return
+	}
+
+	log.Printf("content '%v' is available on the network, initiating stream request\n", *content)
+
+	// stream phase - send stream request, wait for port to listen to
+
+	packet, err = packets.Stream(clientUuid, *content).Encode()
 	utils.Check(err)
 
-	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
+	resultBytes = utils.SendAndWait(packet, conn)
+	log.Printf("received response from stream request, decoding...\n")
+
+	result, err = packets.DecodePacket(resultBytes)
 	utils.Check(err)
 
-	recv, err := packets.Decode[[]server.ConfigItem](buffer[:n])
-	utils.Check(err)
+	if result.Header.Flags != packets.PORT {
+		log.Printf("something went wrong, did not receive PORT packet\n")
+		utils.CloseConnection(conn, *neighbour)
+		return
+	}
 
-	utils.PrintStruct(recv)
+	streamingAddress := utils.ReplacePortFromAddressString(*neighbour, result.Payload.Port)
+	log.Printf("content '%v' is streaming at '%v'\n", *content, streamingAddress)
 
-	/* Req Packet */
-
-	p, err = packets.Encode[string](ReqPacket)
-	utils.Check(err)
-
-	_, err = conn.Write(p)
-	utils.Check(err)
-
-	n, err = conn.Read(buffer)
-	utils.Check(err)
-
-	resp, err := packets.Decode[int](buffer[:n])
-	utils.Check(err)
-
-	utils.PrintStruct(resp)
-
-	/* Ok Packet */
-
-	streamingPort := strconv.FormatInt(int64(resp.Payload), 10)
-	streamingAddr := "127.0.0.1" + ":" + streamingPort
-
-	addr, err := net.ResolveUDPAddr("udp", streamingAddr)
-	utils.Check(err)
-
-	udpConn, err := net.ListenUDP("udp", addr)
-	utils.Check(err)
-
-	defer conn.Close()
-
-	// start ffplay command
-	ffplayCmd := exec.Command("ffplay", "-f", "mpegts", "-")
-	ffplayStdin, err := ffplayCmd.StdinPipe()
-	utils.Check(err)
-
-	ffplayCmd.Stdout = os.Stdout
-	ffplayCmd.Stderr = os.Stderr
-
-	// Start ffplay process
-	err = ffplayCmd.Start()
-	utils.Check(err)
-
-	// Goroutine for continuously reading and writing MPEG TS packets to ffplay
-	go func() {
-		buffer := make([]byte, 188*10) // 188 bytes per MPEG TS packet
-		for {
-			n, _, err := udpConn.ReadFromUDP(buffer)
-			if err != nil {
-				if err != io.EOF {
-					panic(err)
-				}
-				break
-			}
-
-			_, err = ffplayStdin.Write(buffer[:n])
-			if err != nil {
-				panic(err)
-			}
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-
-	p, err = packets.Encode[string](OkPacket)
-	utils.Check(err)
-
-	_, err = conn.Write(p)
-	utils.Check(err)
-
-	err = ffplayCmd.Wait()
+	utils.ListenStream(streamingAddress)
 
 }
