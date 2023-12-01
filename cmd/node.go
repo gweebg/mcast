@@ -1,24 +1,26 @@
 package main
 
 import (
-	"github.com/google/uuid"
+	"flag"
 	"github.com/gweebg/mcast/internal/node"
-	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
 	"log"
+	"net/netip"
 )
 
 func main() {
 
-	bootstrapAddr := "127.0.0.1:20001"
-	n := node.New(bootstrapAddr, ":5000")
+	bootstrapper := flag.String("bootstrap", "", "address of the bootstrapper node")
 
-	discovery := packets.Discovery(uuid.New(), "simpsons.mp4")
-	first, exists := n.Flooder.Flood(discovery)
+	flag.Parse()
 
-	if exists {
-		utils.PrintStruct(first)
-	} else {
-		log.Println("no response")
+	if *bootstrapper == "" {
+		log.Fatalf("bootstrapper address is mandatory\n")
 	}
+
+	_, err := netip.ParseAddrPort(*bootstrapper)
+	utils.Check(err)
+
+	onode := node.New(*bootstrapper)
+	onode.Run()
 }

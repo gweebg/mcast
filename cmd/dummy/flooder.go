@@ -45,3 +45,12 @@ func main() {
 	}
 
 }
+
+//discovery := packets.Discovery(uuid.New(), "simpsons.mp4")
+//first, exists := n.Flooder.Flood(discovery)
+//
+//if exists {
+//	utils.PrintStruct(first)
+//} else {
+//	log.Println("no response")
+//}

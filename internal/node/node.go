@@ -43,7 +43,7 @@ type Node struct {
 }
 
 // New creates a new instance of a *Node.
-func New(bootstrapAddr string, port string) *Node {
+func New(bootstrapAddr string) *Node {
 
 	self, err := setupSelf(bootstrapAddr)
 	utils.Check(err)
@@ -53,7 +53,7 @@ func New(bootstrapAddr string, port string) *Node {
 		handlers.WithHandleTCP(Handler),
 	)
 
-	addr, err := netip.ParseAddrPort(self.SelfIp + port)
+	addr, err := netip.ParseAddrPort(self.SelfIp)
 	utils.Check(err)
 
 	return &Node{
