@@ -59,7 +59,7 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	}
 }
 
-// todo: adapt to Rendezvous
+// fix: adapt to Rendezvous
 func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	/*
 		am I streaming the content ?
@@ -72,7 +72,7 @@ func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 
 	requestId := incoming.Header.RequestId
 	contentName := incoming.Payload.ContentName
-	log.Printf("(%v) received discovery packet from '%v'\n", requestId, incoming.Header.Source)
+	log.Printf("(%v) received stream packet from '%v'\n", requestId, incoming.Header.Source)
 
 	defer utils.CloseConnection(conn, conn.RemoteAddr().String()) // todo: ???
 
@@ -93,24 +93,26 @@ func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
-	source, exists := n.IsPositive(requestId)
-	if exists {
+    // todo: get content from best server, create and add stream to relay
+    incoming.Header.Hops++
 
-		incoming.Header.Hops++
-		response, err := follow(incoming, source)
-		if err != nil || response.Header.Flags.OnlyHasFlag(packets.MISS) {
-			reply(
-				packets.Miss(requestId, contentName),
-				conn,
-			)
-			return
-		}
+    servConn := getBestServer(contentName)
+        
+
+    response, err := follow(incoming, source)
+    if err != nil || response.Header.Flags.OnlyHasFlag(packets.MISS) {
+        reply(
+            packets.Miss(requestId, contentName),
+            conn,
+        )
+        return
+    }
 
 		if response.Header.Flags.OnlyHasFlag(packets.PORT) {
 
 			videoSource := utils.ReplacePortFromAddressString(source, response.Payload.Port)
 
-			relayPort := strconv.FormatUint(n.NextPort(), 10)
+			relayPort := strconv.FormatUint(r.NextPort(), 10)
 			relay := NewRelay(contentName, videoSource, relayPort)
 
 			err := n.AddRelay(contentName, relay)

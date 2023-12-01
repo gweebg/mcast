@@ -58,7 +58,7 @@ type Rendezvous struct {
 	// relay pool, keeps track of receiving streams and who are we relaying them to
 	RelayPool   map[string]*node.Relay
 	rMu         sync.RWMutex
-	CurrentPort uint16
+	CurrentPort uint64
 
 	TCPHandler handlers.TCPConn
 }
@@ -71,6 +71,7 @@ func New(addrString string, servers ...string) *Rendezvous {
 
 	addr, err := netip.ParseAddrPort(addrString)
 	utils.Check(err)
+    // fix: inicializar currentPort
 	return &Rendezvous{
 		Address:    addr,
 		Servers:    NewServers(servers),
@@ -124,7 +125,7 @@ func Handler(conn net.Conn, va ...interface{}) {
 		case packets.STREAM:
 			rendezvous.OnStream(p, conn)
 		case server.CSND:
-			// todo:
+            // todo:  
 		}
 
 	}
@@ -156,15 +157,14 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 	log.Printf("recieved %v from %v", recv.Payload, servAddr)
 
 	r.sMu.Lock()
-	_, exists := r.Servers[servAddr]
 
-	if !exists {
+    if _, exists := r.Servers[servAddr]; !exists {
 		r.Servers[servAddr].Content = recv.Payload
         r.Servers[servAddr].Conn = conn
 	}
 	r.sMu.Unlock()
 
-	// todo: go routine que lanca a funcao que calcula a latencia
+	// todo: go routine que lanca a funcao que calcula as metricas
 
 }
 
@@ -174,29 +174,35 @@ func (r *Rendezvous) setupServers(serverAddrs []string) {
 	}
 }
 
-// IsStreaming checks whether the current node is streaming a certain content
-// by its contentName.
-func (r *Rendezvous) IsStreaming(contentName string) bool {
-	r.rMu.RLock()
-	defer r.rMu.RUnlock()
-
-	if _, exists := r.RelayPool[contentName]; exists {
-		return true
-	}
-	return false
-}
-
 // ContentExists checks if a provided content is available in any of the active
 // servers.
 func (r *Rendezvous) ContentExists(contentName string) bool {
-	for k, s := range r.Servers {
-		for _, c := range s.Content {
-			if c == contentName {
-				log.Printf("Found %v in server %v", contentName, k)
-				return true
-			}
-		}
-	}
-	log.Printf("%v is not available in any of the active servers.", contentName)
-	return false
+    for k, s := range r.Servers {
+        for _, c := range s.Content {
+            if c.Name == contentName {
+                log.Printf("Found %v in server %v", contentName, k)
+                return true
+            }
+        }
+    }
+    log.Printf("%v is not available in any of the active servers.", contentName)
+    return false
+}
+
+// IsStreaming checks whether the current node is streaming a certain content by its contentName.
+func (r *Rendezvous) IsStreaming(contentName string) bool {
+    r.rMu.RLock()
+    defer r.rMu.RUnlock()
+
+    if _, exists := r.RelayPool[contentName]; exists {
+        return true
+    }
+    return false
+}
+
+
+func (r *Rendezvous) NextPort() uint64 {
+	port := r.CurrentPort
+	r.CurrentPort++
+	return port
 }
