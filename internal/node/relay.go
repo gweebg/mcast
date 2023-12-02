@@ -75,7 +75,6 @@ func (r *Relay) Add(address string) error {
 // Loop reads a UDP stream from Origin and forwards it to the addresses specified in Addresses.
 func (r *Relay) Loop() {
 
-	log.Printf("forwarding video '%v' with origin at '%v'\n", r.ContentName, r.Origin)
 	buffer := make([]byte, streamer.TsMtu*10)
 	for {
 

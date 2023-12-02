@@ -71,6 +71,8 @@ func New(bootstrapAddr string) *Node {
 // Run starts the main listening loop and passes each connection to Handler.
 func (n *Node) Run() {
 
+	utils.PrintStruct(n)
+
 	n.TCPHandler.Listen(
 		n.Address,
 		n.TCPHandler.Handle,
@@ -85,7 +87,7 @@ func Handler(conn net.Conn, va ...interface{}) {
 	node := va[0].(*Node) // get the current node
 
 	addrString := conn.RemoteAddr().String()
-	log.Printf("(%v) client connected\n", addrString)
+	log.Printf("(handling %v) new client connected\n", addrString)
 
 	// read the connection for incoming data.
 	buffer := make([]byte, 1024)
@@ -93,14 +95,15 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		n, err := conn.Read(buffer) // read from connection
 		if err != nil {
-			log.Printf("(%v) could not read from connection, closing conn\n", addrString)
-			utils.CloseConnection(conn, addrString)
-			return
+			continue
+			//log.Printf("(%v) could not read from connection, closing conn\n", addrString)
+			//utils.CloseConnection(conn, addrString)
+			//return
 		}
 
 		p, err := packets.DecodePacket(buffer[:n]) // decode packet
 		if err != nil {
-			log.Printf("(%v) malformed packet, ignoring...\n", addrString)
+			log.Printf("(handling %v) malformed packet, ignoring...\n", addrString)
 			utils.CloseConnection(conn, addrString)
 			return
 		}

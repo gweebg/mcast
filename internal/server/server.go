@@ -12,18 +12,19 @@ import (
 	"strconv"
 )
 
-type Packet struct {
-	packets.BasePacket[string]
-}
-
 type Server struct {
+	// Address in which the server listen for tcp connections.
 	Address netip.AddrPort
-	Config  Config
+	// represents the server properties and what content it has available.
+	Config Config
 
+	// tcp listener on the Address
 	TCPHandler handlers.TCPConn
 
+	// contains the addresses where I'm streaming to and what content is being streamed
 	ConnectionPool streamer.StreamingPool
-	AccessPort     int
+	// default streamer port, incremented depending on the number of streamers
+	AccessPort int
 }
 
 // New creates a new server instance when passed its operating address
@@ -43,12 +44,15 @@ func New(addr, path string) *Server {
 		Config:         utils.MustParseJson[Config](path, ValidateConfig),
 		TCPHandler:     *tcpHandler,
 		ConnectionPool: streamer.NewStreamingPool(),
-		AccessPort:     20000,
+		AccessPort:     8000,
 	} // server instantiation
 }
 
 // Run function is responsible for running the main loop of the server.
 func (s *Server) Run() {
+
+	utils.PrintStruct(s)
+
 	s.TCPHandler.Listen(
 		s.Address,           // remote address
 		s.TCPHandler.Handle, // request handler
@@ -62,11 +66,11 @@ func Handler(conn net.Conn, va ...interface{}) {
 	s := va[0].(*Server) // get the server
 
 	addrString := conn.RemoteAddr().String()
-	log.Printf("(%v) client connected\n", addrString)
+	log.Printf("(handling %v) new connection received\n", addrString)
 
 	// read the connection for incoming data.
 	buffer := make([]byte, 1024)
-	for { // todo: wont timeout due to the incoming metric packets
+	for {
 
 		n, err := conn.Read(buffer) // read from connection
 		if err != nil {
@@ -75,7 +79,7 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		p, err := packets.Decode[string](buffer[:n]) // decode packet
 		if err != nil {
-			log.Printf("(%v) malformed packet, ignoring...\n", addrString)
+			log.Printf("(handling %v) malformed packet, ignoring...\n", addrString)
 			continue // just ignore the packet, continue the read
 		}
 
@@ -90,6 +94,9 @@ func Handler(conn net.Conn, va ...interface{}) {
 		case packets.STOP: // received STOP
 			s.OnStop(conn, p)
 
+		case packets.PING: // received PING
+			s.OnPing(conn)
+
 		}
 	}
 }
@@ -100,7 +107,7 @@ func Handler(conn net.Conn, va ...interface{}) {
 func (s *Server) OnWake(conn net.Conn) {
 
 	remote := conn.RemoteAddr().String()
-	log.Printf("(%v) received packet with header 'WAKE'\n", remote)
+	log.Printf("(handling %v) received packet with header 'WAKE'\n", remote)
 
 	// response packet
 	pac := ContentInfoPacket(s.Config.Content)
@@ -111,39 +118,42 @@ func (s *Server) OnWake(conn net.Conn) {
 	size, err := conn.Write(encPac) // send the packet
 	utils.Check(err)
 
-	log.Printf("(%v) answered with packet 'CSND' (%d bytes)\n", remote, size)
+	log.Printf("(handling %v) answered with packet 'CSND' (%d bytes)\n", remote, size)
 }
 
 // OnContent handles the request 'REQ' from the client.
 // First the server responds via TCP (conn net.Conn) with the port where the content
 // will be streamed on. Once the client answers with an 'OK' packet then we start the
 // UDP stream by utilizing our streamer.Streamer struct.
-// todo: refactor this function into to abstract certain parts
 func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 
 	remote := conn.RemoteAddr().String()
-	log.Printf("(%v) received packet with header 'REQ'\n", remote)
+	log.Printf("(handling %v) received packet with header 'REQ'\n", remote)
 
 	// create response packet
-	port := s.AccessPort
+	port := s.AccessPort // port that we're sending to the client
+
 	streamers, err := s.ConnectionPool.GetPool(remote)
 	if err == nil { // if there's already a streaming pool the streaming port is the default + len(pool)
 		port += len(streamers) + 1
 	}
 
-	encPack, err := packets.Encode[int](ContentPortPacket(port))
+	// encode the packet with the port as a string
+	encPack, err := packets.Encode[string](ContentPortPacket(strconv.FormatInt(int64(port), 10)))
 	utils.Check(err)
 
 	// send response packet
-	size, err := conn.Write(encPack)
+	_, err = conn.Write(encPack)
 	utils.Check(err)
 
-	log.Printf("(%v) answered with packet 'CONT' (%d bytes)\n", remote, size)
+	log.Printf("(handling %v) answered with packet 'CONT' (port: %d)\n", remote, port)
 
 	// get the address where to stream the video
 	portString := strconv.FormatInt(int64(port), 10)
-	streamAddr := s.Address.Addr().String() + ":" + portString
-	log.Printf("(%v) setting up streaming at '%v'\n", remote, streamAddr)
+	streamAddr := utils.ReplacePortFromAddressString(conn.RemoteAddr().String(), portString)
+
+	log.Printf("(handling %v) setting up streaming of '%v' at '%v'\n", remote, p.Payload, streamAddr)
+	log.Printf("(handling %v) waiting for confirmation...\n", remote)
 
 	response := make([]byte, 1024) // receiving the clients response
 	n, err := conn.Read(response)
@@ -154,22 +164,23 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 
 	if recvPack.Header.Flag.OnlyHasFlag(packets.OK) {
 
-		log.Printf("(%v) received response with header 'OK'\n", remote)
+		log.Printf("(handling %v) received confirmation packet with header 'OK'\n", remote)
 
 		// create and initialize the streamer object responsible for the content streaming
 		stmr := streamer.New(
 			streamer.WithAddress(streamAddr),
 			streamer.WithContentName(p.Payload),
 		)
+		log.Printf("(handling %v) created new streamer for '%v'\n", remote, p.Payload)
 
 		err = s.ConnectionPool.Add(remote, stmr) // create a new streaming pool
 		utils.Check(err)
+		log.Printf("(handling %v) added streamer for '%v' to the pool\n", remote, p.Payload)
 
 		go stmr.Stream()
-		log.Printf("(%v) started streaming %v on %v\n", remote, p.Payload, streamAddr)
 
 	} else {
-		log.Printf("(%v) unexpected response, was expecting packet with header 'OK'", remote)
+		log.Printf("(handling %v) did not receive confirmation, was expecting packet with header 'OK'\n", remote)
 	}
 
 }
@@ -180,10 +191,30 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 func (s *Server) OnStop(conn net.Conn, p packets.BasePacket[string]) {
 
 	remote := conn.RemoteAddr().String()
-	log.Printf("(%v) received packet with header 'STOP'\n", remote)
+	log.Printf("(handling %v) received packet with header 'STOP'\n", remote)
 
 	err := s.ConnectionPool.Delete(remote, p.Payload) // delete already handles the streamer teardown
 	utils.Check(err)
 
-	log.Printf("(%v) stopped streaming %v\n", remote, p.Payload)
+	log.Printf("(handling %v) stopped streaming %v\n", remote, p.Payload)
+}
+
+// OnPing function answers with Pong to Ping requests, used
+// in metrics measurements by the clients, such as latency,
+// jitter and packet loss.
+func (s *Server) OnPing(conn net.Conn) {
+
+	remote := conn.RemoteAddr().String()
+	log.Printf("(handling %v) received packet with header 'PING'\n", remote)
+
+	encPack, err := packets.Encode[string](Pong())
+	utils.Check(err)
+
+	_, err = conn.Write(encPack)
+	if err != nil {
+		log.Printf("(handling %v) cannot respond with pong to rendezvous point\n", remote)
+	}
+
+	log.Printf("(handling %v) responded with 'Pong'\n", remote)
+
 }

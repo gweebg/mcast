@@ -19,38 +19,43 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 				no ->  reply with miss
 	*/
 
+	remote := conn.RemoteAddr().String()
 	requestId := incoming.Header.RequestId
 	contentName := incoming.Payload.ContentName
 
-	defer func(r *Rendezvous) {
+	defer func() {
 		r.Requests.Set(requestId, true)
-	}(r) // set packet as handled
+		log.Printf("(handling %v) request '%v' handled\n", remote, contentName)
+	}() // set packet as handled
 
 	if r.Requests.IsHandled(requestId) {
+		log.Printf("(handling %v) incoming packet refers to a duplicate request\n", remote)
 		reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
+		log.Printf("(handling %v) send 'MISS', reason 'duplicate'\n", remote)
 		return
 	} // packet was already handled
 
 	if r.ContentExists(contentName) { // this content is available
 
-		log.Printf("content '%v' is available for streaming\n", contentName)
-		// todo: check value of r.Address.String()
+		log.Printf("(handling %v) content '%v' is available for streaming\n", remote, contentName)
 		reply(
 			packets.Found(requestId, contentName, r.Address.String()),
 			conn,
 		)
+		log.Printf("(handling %v) send 'FOUND' with source address as '%v'\n", r.Address.String())
 		return
 
 	} else { // this content is not available in any server
 
-		log.Printf("content '%v' is not available for streaming\n", contentName)
+		log.Printf("(handling %v) content '%v' is not available for streaming\n", remote, contentName)
 		reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
+		log.Printf("(handling %v) send 'MISS', reason 'content not found'\n", remote)
 	}
 }
 
@@ -61,33 +66,42 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 			no  -> select best server for the content, create and init relay, reply with port
 	*/
 
+	remote := conn.RemoteAddr().String()
 	requestId := incoming.Header.RequestId
 	contentName := incoming.Payload.ContentName
 
-	log.Printf("(%v) received stream packet from '%v'\n", requestId, incoming.Header.Source)
-	defer utils.CloseConnection(conn, conn.RemoteAddr().String())
+	log.Printf("(handling %v) received 'STREAM' packet for content '%v'\n", remote, incoming.Payload.ContentName)
+	defer func() {
+		utils.CloseConnection(conn, remote)
+		log.Printf("(handling %v) closed connection, reason 'termination'\n", remote)
+	}()
 
 	if r.IsStreaming(contentName) { // if am I streaming contentName
 
+		log.Printf("(handling %v) stream found for content '%v'\n", remote, contentName)
 		relay, exists := r.RelayPool[contentName] // get correct relay for contentName
 		if !exists {
-			log.Fatalf("relay does not exist for content '%v'\n", contentName)
+			log.Fatalf("(handling %v) relay does not exist for content '%v'\n", remote, contentName)
 		}
 
 		// address to add to the relay
-		address := utils.ReplacePortFromAddressString(conn.RemoteAddr().String(), relay.Port)
 
 		reply(packets.Port(requestId, contentName, relay.Port), conn) // reply with streaming port
+		log.Printf("(handling %v) responded with 'PORT' packet, port=%v", remote, relay.Port)
 
+		address := utils.ReplacePortFromAddressString(conn.RemoteAddr().String(), relay.Port)
 		err := relay.Add(address) // add client to relay
 		utils.Check(err)
 
+		log.Printf("(handling %v) added address '%v' to the relay for '%v'\n", remote, address, contentName)
 		return
 	}
 
+	log.Printf("(handling %v) no relay found for content '%v', asking server\n", remote, contentName)
 	incoming.Header.Hops++
-
 	svr := r.GetBestServerConn(contentName)
+
+	log.Printf("(handling %v) selected server at '%v' for the streaming of '%v'\n", remote, svr.RemoteAddr().String(), contentName)
 
 	// create request packet for the received content name
 	packet := packets.Request(contentName)
@@ -97,48 +111,63 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 
 	// send request packet to the best server
 	_, err = svr.Write(buffer)
-	log.Printf("sent request for '%v' to server '%v'\n", contentName, svr.RemoteAddr().String())
 	if err != nil {
-		log.Printf("(handlers.go) cannot write packet to '%v'\n", svr)
+		log.Printf("(servers %v) cannot write packet 'REQ'\n", svr)
 		return
 	}
+	log.Printf("(servers %v) sent packet 'REQ' for '%v'\n", svr.RemoteAddr().String(), contentName)
 
 	// receive and decode the response
 	responseBuffer := make([]byte, 1024)
 	n, err := svr.Read(responseBuffer)
 	if err != nil {
-		log.Printf("(handlers.go) cannot read packet from '%v'\n", svr.RemoteAddr().String())
+		log.Printf("(servers %v) cannot read packet\n", svr.RemoteAddr().String())
 		return
 	}
 
-	resp, err := packets.Decode[int](responseBuffer[:n])
+	resp, err := packets.Decode[string](responseBuffer[:n])
 	utils.Check(err)
 
 	if !resp.Header.Flag.OnlyHasFlag(packets.CSND) {
-		log.Printf("asked server '%v' for '%v', but recieved nothing\n", conn.RemoteAddr().String(), contentName)
+		log.Printf("(servers %v) did not receive port for stream of '%v'\n", conn.RemoteAddr().String(), contentName)
 		reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
+		log.Printf("(handling %v) sent packet 'MISS', reason 'no port from server'\n", remote)
 		return
 	}
 
-	videoSourcePort := strconv.FormatInt(int64(resp.Payload), 10)                        // the port on which the server is streaming
-	videoSource := utils.ReplacePortFromAddressString("127.0.0.1:0000", videoSourcePort) // the full streaming address
+	log.Printf("(servers %v) received packet 'CSND' with port=%v\n", svr.RemoteAddr().String(), resp.Payload)
 
-	log.Printf("server is streaming '%v' at address '%v'\n", contentName, videoSource)
+	videoSource := utils.ReplacePortFromAddressString("127.0.0.1:9999", resp.Payload) // the full streaming address
+	log.Printf("(servers %v) server is streaming '%v' at address '%v'\n", svr.RemoteAddr().String(), contentName, videoSource)
 
 	// create new relay
 	relayPort := strconv.FormatUint(r.NextPort(), 10)
 	relay := node.NewRelay(contentName, videoSource, relayPort)
+	log.Printf("(handling %v) created new relay for '%v', relay port is '%v'", remote, contentName, relayPort)
 
 	// add relay to pool
 	err = r.AddRelay(contentName, relay)
 	utils.Check(err)
+	log.Printf("(handling %v) added relay for '%v' to the pool\n", remote, contentName)
 
 	go relay.Loop() // start the relay streaming loop
+	log.Printf("(handling %v) relay started transmitting '%v' with origin at '%v'\n", remote, contentName, videoSource)
+
+	ok := packets.Ok()
+	okResponse, err := packets.Encode[string](ok)
+	utils.Check(err)
+
+	_, err = svr.Write(okResponse)
+	if err != nil {
+		log.Fatalf("(servers %v) cannot reply with 'OK' to server\n", svr.RemoteAddr().String())
+	}
+	log.Printf("(servers %v) sent packet 'OK'\n", svr.RemoteAddr().String())
 
 	reply(packets.Port(requestId, contentName, relay.Port), conn) // reply to client in which port I'm streaming
+	log.Printf("(handling %v) sent packet 'PORT', port=%v\n", remote, relay.Port)
 }
 
 func reply(response packets.Packet, conn net.Conn) {
@@ -148,7 +177,7 @@ func reply(response packets.Packet, conn net.Conn) {
 
 	_, err = conn.Write(enc)
 	if err != nil {
-		log.Printf("(handlers.go) could not write to '%v'\n", conn.RemoteAddr().String())
+		log.Printf("(handling %v) could not write, reason 'unknown'\n", conn.RemoteAddr().String())
 	}
 
 }

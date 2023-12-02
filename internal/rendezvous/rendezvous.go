@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,54 +15,6 @@ import (
 	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
 )
-
-type Servers map[string]*ServerInfo
-
-type ServerInfo struct {
-
-	// the address where the node will talk to the server.
-	Address string
-
-	// packet loss of the server.
-	PacketLoss uint64
-	// Jitter of the server.
-	Jitter float32
-	// Latency of the server.
-	Latency float32
-	// Metric lock to prevent race conditions.
-	mMu sync.Mutex
-
-	// which content the server has available.
-	Content []server.ConfigItem
-	// tcp connection to the server at Address.
-	Conn *net.TCPConn
-
-	Ticker     *time.Ticker
-	tickerChan chan bool
-}
-
-// CalculateMetrics calculates the general metrics of a server, the Latency is given
-// a weight of 60% while the Jitter is given a weight of 40%. Packet loss is not accounted
-// for the metrics calculation, yet.
-func (s *ServerInfo) CalculateMetrics() float32 {
-	return ((s.Latency * 0.6) + (s.Jitter * 0.4)) / 100
-}
-
-// NewServers populate the Servers struct with the ServerInfo objects by passing
-// their addresses.
-func NewServers(addrs []string) Servers {
-	srvs := make(Servers)
-
-	for _, addr := range addrs {
-		srvs[addr] = &ServerInfo{
-			Address:    addr,
-			Content:    make([]server.ConfigItem, 0),
-			tickerChan: make(chan bool),
-		}
-	}
-
-	return srvs
-}
 
 type Rendezvous struct {
 	// Address of the Rendezvous node, cannot be localhost or 127.0.0.1.
@@ -102,7 +55,7 @@ func New(addrString string, servers ...string) *Rendezvous {
 		Servers:     NewServers(servers),
 		Requests:    node.NewRequestDb(),
 		TCPHandler:  *handler,
-		CurrentPort: 20000,
+		CurrentPort: 9000,
 		RelayPool:   make(map[string]*node.Relay),
 	}
 }
@@ -110,7 +63,10 @@ func New(addrString string, servers ...string) *Rendezvous {
 // Run starts the main listening loop and passes each connection to Handler.
 func (r *Rendezvous) Run() {
 
+	utils.PrintStruct(r)
+
 	for _, srv := range r.Servers {
+		log.Printf("(setup) retrieving information from server '%v'\n", srv.Address)
 		r.connectToServer(srv.Address)
 	}
 
@@ -128,7 +84,7 @@ func Handler(conn net.Conn, va ...interface{}) {
 	rendezvous := va[0].(*Rendezvous) // get rendezvous
 
 	addrString := conn.RemoteAddr().String()
-	log.Printf("(%v) client connected\n", addrString)
+	log.Printf("(handling %v) new client connected\n", addrString)
 
 	// read the connection for incoming data.
 	buffer := make([]byte, 1024)
@@ -136,14 +92,15 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		n, err := conn.Read(buffer) // read from connection
 		if err != nil {
-			log.Printf("(%v) could not read from connection, closing conn\n", addrString)
-			utils.CloseConnection(conn, addrString)
-			return
+			continue
+			//log.Printf("(read %v) could not read from connection\n", addrString)
+			//utils.CloseConnection(conn, addrString)
+			//return
 		}
 
 		p, err := packets.DecodePacket(buffer[:n]) // decode packet
 		if err != nil {
-			log.Printf("(%v) malformed packet, ignoring...\n", addrString)
+			log.Printf("(decode %v) malformed packet, ignoring...\n", addrString)
 			utils.CloseConnection(conn, addrString)
 			return
 		}
@@ -185,14 +142,25 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 	recv, err := packets.Decode[[]server.ConfigItem](buffer[:n])
 	utils.Check(err)
 
-	log.Printf("received '%v' from '%v', conext wake request\n", recv.Payload, servAddr)
+	// removing the full path from the content names
+	formatted := make([]server.ConfigItem, 0)
+	for _, config := range recv.Payload {
+
+		nameList := strings.Split(config.Name, "/")
+		name := nameList[len(nameList)-1]
+
+		config.Name = name
+
+		formatted = append(formatted, config)
+	}
+
+	log.Printf("(server %v) received server information:\n", servAddr)
+	utils.PrintStruct(formatted)
 
 	// setting content and connection for the server
 	r.sMu.Lock()
-	if _, exists := r.Servers[servAddr]; !exists {
-		r.Servers[servAddr].Content = recv.Payload
-		r.Servers[servAddr].Conn = conn
-	}
+	r.Servers[servAddr].Content = formatted
+	r.Servers[servAddr].Conn = conn
 	r.sMu.Unlock()
 
 	r.measure(conn) // start metrics measuring process
@@ -200,14 +168,17 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 
 func (r *Rendezvous) measure(conn *net.TCPConn) {
 
+	remote := conn.RemoteAddr().String()
+
 	srv, exists := r.Servers[conn.RemoteAddr().String()]
 	if !exists {
-		log.Fatalf("server '%v' should exists, but it doesn't\n", conn.RemoteAddr().String())
+		log.Fatalf("(server %v) server should exist in Servers, but it doesn't\n", remote)
 	}
 
 	srv.Ticker = time.NewTicker(5 * time.Second)
 
 	go func() {
+		log.Printf("(metrics %v) started metrics loop\n", remote)
 		for {
 			select {
 
@@ -226,8 +197,12 @@ func (r *Rendezvous) measure(conn *net.TCPConn) {
 				_, err = conn.Write(packet)
 				utils.Check(err)
 
+				log.Printf("(metrics %v) sent ping\n", remote)
+
 				_, err = conn.Read(nil)
 				utils.Check(err)
+
+				log.Printf("(metrics %v) got pong\n", remote)
 
 				stopTime := time.Now()
 
@@ -243,7 +218,6 @@ func (r *Rendezvous) measure(conn *net.TCPConn) {
 		}
 	}()
 
-	log.Printf("measuring metrics for server '%v'\n", srv.Address)
 }
 
 // ContentExists checks if a provided content is available in any of the active

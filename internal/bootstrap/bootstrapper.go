@@ -102,6 +102,7 @@ func (b *Bootstrap) handle(conn net.Conn) {
 	r, err := b.GetNode(addr)
 	if err != nil {
 		log.Printf("(%v) %v\n", rAddr, err)
+		rflag = ERR
 	}
 
 	ok := answer(r, rflag, conn)

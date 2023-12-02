@@ -18,7 +18,7 @@ func main() {
 
 	bs := bootstrap.New(
 		*configFlag,
-		":20001",
+		":5001",
 	)
 
 	utils.PrintStruct(bs.Config)

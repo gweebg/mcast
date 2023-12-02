@@ -157,6 +157,8 @@ func (s *Streamer) Stream() {
 	err = sync.Start() // start sync process via ffplay
 	utils.Check(err)
 
+	log.Printf("(handling %v) started streaming '%v'\n", s.Address, s.ContentName)
+
 	seq := 0
 	buffer := make([]byte, TsMtu*10)
 	for {
