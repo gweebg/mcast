@@ -12,7 +12,6 @@ import (
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
-	"golang.org/x/exp/slices"
 )
 
 // Falta:
@@ -196,7 +195,7 @@ func (r *Rendezvous) ContentExists(contentName string) bool {
 func (r *Rendezvous) GetBestServer(contentName string) *net.TCPConn {
 	var bestSv *ServerInfo
 	for _, v := range r.Servers {
-		if !slices.Contains(v.Content, contentName) { // if server doesnt have contentName skip iteration
+		if !utils.Contains(v.Content, contentName) { // if server doesnt have contentName skip iteration
 			continue
 		}
 		if bestSv == nil || bestSv.CalculateMetrics() < v.CalculateMetrics() {
