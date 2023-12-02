@@ -18,8 +18,8 @@ type Packet struct {
 
 const (
 	WAKE flags.FlagType = 0b1
+    CONT flags.FlagType = 0b10
 	CSND flags.FlagType = 0b100
-	CONT flags.FlagType = 0b10
 	STOP flags.FlagType = 0b1000
 	OK   flags.FlagType = 0b10000
 	REQ  flags.FlagType = 0b100000

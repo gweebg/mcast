@@ -1,16 +1,238 @@
 package rendezvous
 
+import (
+	"errors"
+	"log"
+	"net"
+	"net/netip"
+	"sync"
+
+	"github.com/gweebg/mcast/internal/handlers"
+	"github.com/gweebg/mcast/internal/node"
+	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/server"
+	"github.com/gweebg/mcast/internal/utils"
+	"golang.org/x/exp/slices"
+)
+
+// Falta:
+//      comunicacao inicial com os servidores
+//      relay quando chega um pedido de streaming
+
 // ouve tcp:
 //   recebe um pedido de discovery -> responde yes
 //   recebe um stream request ->
-//      verifica se esta a difundir esse conteudo 
-//          yes: responde com a porta da stream 
+//      verifica se esta a difundir esse conteudo
+//          yes: responde com a porta da stream
 //          no: comunicar com o server que tiver o conteudo e comecar a stream
 //              e responde com a porta
-//          para ambos espera que o nodo respoda com ok antes de abrir o udp 
+//          para ambos espera que o nodo respoda com ok antes de abrir o udp
+
+type Servers map[string]*ServerInfo
+
+// falta aqui o mutex
+type ServerInfo struct {
+	Address    string
+	PacketLoss uint64
+	Jitter     float32
+	Latency    float32
+	Content    []server.ConfigItem
+	Conn       *net.TCPConn
+}
+
+// todo: verificar que este calculo esta certo
+func (s *ServerInfo) CalculateMetrics() float32 {
+	return s.Latency*0.6 + s.Jitter*0.4/100
+}
+
+func NewServers(addrs []string) Servers {
+	srvs := make(Servers)
+	for _, a := range addrs {
+		srvs[a] = &ServerInfo{Address: a, Content: make([]server.ConfigItem, 0)}
+	}
+	return srvs
+}
 
 type Rendezvous struct {
-    // map key server addr e value struct com struct de metricas conteudo associado
-    // ao server e.g. {Fonte:S1; Métrica: 1; Conteúdos: [movie1.mp4, video4.ogg], Estado: ativa }
-    
+	// map key server addr e value struct com struct de metricas conteudo associado
+	// ao server e.g. {Fonte:S1; Métrica: 1; Conteúdos: [movie1.mp4, video4.ogg], Estado: ativa }
+	Address netip.AddrPort
+	Servers Servers
+	sMu     sync.RWMutex
+
+	Requests *node.RequestDb
+
+	// relay pool, keeps track of receiving streams and who are we relaying them to
+	RelayPool   map[string]*node.Relay
+	rMu         sync.RWMutex
+	CurrentPort uint64
+
+	TCPHandler handlers.TCPConn
+}
+
+func New(addrString string, servers ...string) *Rendezvous {
+	handler := handlers.NewTCP(
+		handlers.WithListenTCP(),
+		handlers.WithHandleTCP(Handler),
+	)
+
+	addr, err := netip.ParseAddrPort(addrString)
+	utils.Check(err)
+	return &Rendezvous{
+		Address:     addr,
+		Servers:     NewServers(servers),
+		Requests:    node.NewRequestDb(),
+		TCPHandler:  *handler,
+		CurrentPort: 20000,
+		RelayPool:   make(map[string]*node.Relay),
+	}
+}
+
+// Run starts the main listening loop and passes each connection to Handler.
+func (r *Rendezvous) Run() {
+	setupServers()
+	r.TCPHandler.Listen(
+		r.Address,
+		r.TCPHandler.Handle,
+		r,
+	)
+}
+
+// Handler reads from the connection conn and distributes the packets
+// through the available handlers at handler.go
+func Handler(conn net.Conn, va ...interface{}) {
+
+	rendezvous := va[0].(*Rendezvous) // get rendezvous
+
+	addrString := conn.RemoteAddr().String()
+	log.Printf("(%v) client connected\n", addrString)
+
+	// read the connection for incoming data.
+	buffer := make([]byte, 1024)
+	for {
+
+		n, err := conn.Read(buffer) // read from connection
+		if err != nil {
+			log.Printf("(%v) could not read from connection, closing conn\n", addrString)
+			utils.CloseConnection(conn, addrString)
+			return
+		}
+
+		p, err := packets.DecodePacket(buffer[:n]) // decode packet
+		if err != nil {
+			log.Printf("(%v) malformed packet, ignoring...\n", addrString)
+			utils.CloseConnection(conn, addrString)
+			return
+		}
+
+		switch p.Header.Flags {
+
+		case packets.DISC:
+			rendezvous.OnDiscovery(p, conn)
+		case packets.STREAM:
+			rendezvous.OnStream(p, conn)
+		}
+
+	}
+
+}
+
+func (r *Rendezvous) connectToServer(servAddr string) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
+	utils.Check(err)
+
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	utils.Check(err)
+
+	/* Wake Packet */
+	wakePacket := packets.Wake()
+	p, err := packets.Encode[string](wakePacket)
+	utils.Check(err)
+
+	_, err = conn.Write(p)
+	utils.Check(err)
+
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	utils.Check(err)
+
+	recv, err := packets.Decode[[]server.ConfigItem](buffer[:n])
+	utils.Check(err)
+
+	log.Printf("recieved %v from %v", recv.Payload, servAddr)
+
+	r.sMu.Lock()
+	if _, exists := r.Servers[servAddr]; !exists {
+		r.Servers[servAddr].Content = recv.Payload
+		r.Servers[servAddr].Conn = conn
+	}
+	r.sMu.Unlock()
+
+	// fix: go routine que lanca a funcao que calcula as metricas
+}
+
+func (r *Rendezvous) setupServers(serverAddrs []string) {
+	for _, servAddr := range serverAddrs {
+		r.connectToServer(servAddr)
+	}
+}
+
+// ContentExists checks if a provided content is available in any of the active
+// servers.
+func (r *Rendezvous) ContentExists(contentName string) bool {
+	for k, s := range r.Servers {
+		for _, c := range s.Content {
+			if c.Name == contentName {
+				log.Printf("Found %v in server %v", contentName, k)
+				return true
+			}
+		}
+	}
+	log.Printf("%v is not available in any of the active servers.", contentName)
+	return false
+}
+
+// GetBestServer returns the connection to the best server with contentName available
+func (r *Rendezvous) GetBestServer(contentName string) *net.TCPConn {
+	var bestSv *ServerInfo
+	for _, v := range r.Servers {
+		if !slices.Contains(v.Content, contentName) { // if server doesnt have contentName skip iteration
+			continue
+		}
+		if bestSv == nil || bestSv.CalculateMetrics() < v.CalculateMetrics() {
+			bestSv = v
+		}
+	}
+	return bestSv.Conn
+}
+
+// IsStreaming checks whether the current node is streaming a certain content by its contentName.
+func (r *Rendezvous) IsStreaming(contentName string) bool {
+	r.rMu.RLock()
+	defer r.rMu.RUnlock()
+
+	if _, exists := r.RelayPool[contentName]; exists {
+		return true
+	}
+	return false
+}
+
+func (r *Rendezvous) NextPort() uint64 {
+	port := r.CurrentPort
+	r.CurrentPort++
+	return port
+}
+
+func (r *Rendezvous) AddRelay(contentName string, relay *node.Relay) error {
+
+	r.rMu.Lock()
+	defer r.rMu.Unlock()
+
+	_, exists := r.RelayPool[contentName]
+	if exists {
+		return errors.New("relay for content '" + contentName + "' already exists.")
+	}
+
+	r.RelayPool[contentName] = relay
+	return nil
 }
