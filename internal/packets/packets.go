@@ -78,3 +78,12 @@ func Stop(contentName string) BasePacket[string] {
 		Payload: contentName,
 	}
 }
+
+func Ping() BasePacket[string] {
+	return BasePacket[string]{
+		Header: PacketHeader{
+			Flag: server.PING,
+		},
+		Payload: "hello!",
+	}
+}

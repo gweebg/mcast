@@ -57,12 +57,14 @@ func New(bootstrapAddr string) *Node {
 	utils.Check(err)
 
 	return &Node{
-		Self:       self,
-		Flooder:    NewFlooder(self.Neighbours),
-		TCPHandler: *handler,
-		Address:    addr,
-		Requests:   NewRequestDb(),
-		RelayPool:  make(map[string]*Relay),
+		Self:        self,
+		Flooder:     NewFlooder(self.Neighbours),
+		TCPHandler:  *handler,
+		Address:     addr,
+		Requests:    NewRequestDb(),
+		RelayPool:   make(map[string]*Relay),
+		Positive:    make(map[uuid.UUID]string),
+		CurrentPort: 30000,
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/gweebg/mcast/internal/handlers"
 	"github.com/gweebg/mcast/internal/node"
@@ -14,69 +15,88 @@ import (
 	"github.com/gweebg/mcast/internal/utils"
 )
 
-// Falta:
-//      comunicacao inicial com os servidores
-//      relay quando chega um pedido de streaming
-
-// ouve tcp:
-//   recebe um pedido de discovery -> responde yes
-//   recebe um stream request ->
-//      verifica se esta a difundir esse conteudo
-//          yes: responde com a porta da stream
-//          no: comunicar com o server que tiver o conteudo e comecar a stream
-//              e responde com a porta
-//          para ambos espera que o nodo respoda com ok antes de abrir o udp
-
 type Servers map[string]*ServerInfo
 
-// falta aqui o mutex
 type ServerInfo struct {
-	Address    string
+
+	// the address where the node will talk to the server.
+	Address string
+
+	// packet loss of the server.
 	PacketLoss uint64
-	Jitter     float32
-	Latency    float32
-	Content    []server.ConfigItem
-	Conn       *net.TCPConn
+	// Jitter of the server.
+	Jitter float32
+	// Latency of the server.
+	Latency float32
+	// Metric lock to prevent race conditions.
+	mMu sync.Mutex
+
+	// which content the server has available.
+	Content []server.ConfigItem
+	// tcp connection to the server at Address.
+	Conn *net.TCPConn
+
+	Ticker     *time.Ticker
+	tickerChan chan bool
 }
 
-// todo: verificar que este calculo esta certo
+// CalculateMetrics calculates the general metrics of a server, the Latency is given
+// a weight of 60% while the Jitter is given a weight of 40%. Packet loss is not accounted
+// for the metrics calculation, yet.
 func (s *ServerInfo) CalculateMetrics() float32 {
-	return s.Latency*0.6 + s.Jitter*0.4/100
+	return ((s.Latency * 0.6) + (s.Jitter * 0.4)) / 100
 }
 
+// NewServers populate the Servers struct with the ServerInfo objects by passing
+// their addresses.
 func NewServers(addrs []string) Servers {
 	srvs := make(Servers)
-	for _, a := range addrs {
-		srvs[a] = &ServerInfo{Address: a, Content: make([]server.ConfigItem, 0)}
+
+	for _, addr := range addrs {
+		srvs[addr] = &ServerInfo{
+			Address:    addr,
+			Content:    make([]server.ConfigItem, 0),
+			tickerChan: make(chan bool),
+		}
 	}
+
 	return srvs
 }
 
 type Rendezvous struct {
-	// map key server addr e value struct com struct de metricas conteudo associado
-	// ao server e.g. {Fonte:S1; Métrica: 1; Conteúdos: [movie1.mp4, video4.ogg], Estado: ativa }
+	// Address of the Rendezvous node, cannot be localhost or 127.0.0.1.
 	Address netip.AddrPort
-	Servers Servers
-	sMu     sync.RWMutex
 
+	// currently known servers.
+	Servers Servers
+	// Servers mutex, to prevent race conditions.
+	sMu sync.RWMutex
+
+	// keeps track of handled requests.
 	Requests *node.RequestDb
 
-	// relay pool, keeps track of receiving streams and who are we relaying them to
-	RelayPool   map[string]*node.Relay
-	rMu         sync.RWMutex
+	// keeps track of receiving streams and who are we relaying them to.
+	RelayPool map[string]*node.Relay
+	// relay pool mutex, to prevent race conditions.
+	rMu sync.RWMutex
+	// current operating port when creating new relays.
 	CurrentPort uint64
 
+	// tcp listener for incoming requests from other network nodes.
 	TCPHandler handlers.TCPConn
 }
 
+// New creates a new Rendezvous node, returns a pointer.
 func New(addrString string, servers ...string) *Rendezvous {
+
 	handler := handlers.NewTCP(
 		handlers.WithListenTCP(),
 		handlers.WithHandleTCP(Handler),
-	)
+	) // tcp listener & handler
 
-	addr, err := netip.ParseAddrPort(addrString)
+	addr, err := netip.ParseAddrPort(addrString) // self address, cannot be localhost/127.0.0.1
 	utils.Check(err)
+
 	return &Rendezvous{
 		Address:     addr,
 		Servers:     NewServers(servers),
@@ -89,7 +109,11 @@ func New(addrString string, servers ...string) *Rendezvous {
 
 // Run starts the main listening loop and passes each connection to Handler.
 func (r *Rendezvous) Run() {
-	setupServers()
+
+	for _, srv := range r.Servers {
+		r.connectToServer(srv.Address)
+	}
+
 	r.TCPHandler.Listen(
 		r.Address,
 		r.TCPHandler.Handle,
@@ -128,22 +152,24 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		case packets.DISC:
 			rendezvous.OnDiscovery(p, conn)
+
 		case packets.STREAM:
 			rendezvous.OnStream(p, conn)
+
 		}
-
 	}
-
 }
 
 func (r *Rendezvous) connectToServer(servAddr string) {
+
+	// setup tcp connection with server
 	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
 	utils.Check(err)
 
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	utils.Check(err)
 
-	/* Wake Packet */
+	// send wake packet to server
 	wakePacket := packets.Wake()
 	p, err := packets.Encode[string](wakePacket)
 	utils.Check(err)
@@ -151,6 +177,7 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 	_, err = conn.Write(p)
 	utils.Check(err)
 
+	// wait for response
 	buffer := make([]byte, 1024)
 	n, err := conn.Read(buffer)
 	utils.Check(err)
@@ -158,8 +185,9 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 	recv, err := packets.Decode[[]server.ConfigItem](buffer[:n])
 	utils.Check(err)
 
-	log.Printf("recieved %v from %v", recv.Payload, servAddr)
+	log.Printf("received '%v' from '%v', conext wake request\n", recv.Payload, servAddr)
 
+	// setting content and connection for the server
 	r.sMu.Lock()
 	if _, exists := r.Servers[servAddr]; !exists {
 		r.Servers[servAddr].Content = recv.Payload
@@ -167,42 +195,88 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 	}
 	r.sMu.Unlock()
 
-	// fix: go routine que lanca a funcao que calcula as metricas
+	r.measure(conn) // start metrics measuring process
 }
 
-func (r *Rendezvous) setupServers(serverAddrs []string) {
-	for _, servAddr := range serverAddrs {
-		r.connectToServer(servAddr)
+func (r *Rendezvous) measure(conn *net.TCPConn) {
+
+	srv, exists := r.Servers[conn.RemoteAddr().String()]
+	if !exists {
+		log.Fatalf("server '%v' should exists, but it doesn't\n", conn.RemoteAddr().String())
 	}
+
+	srv.Ticker = time.NewTicker(5 * time.Second)
+
+	go func() {
+		for {
+			select {
+
+			case <-srv.tickerChan:
+				return
+
+			case <-srv.Ticker.C:
+
+				ping := packets.Ping()
+
+				packet, err := packets.Encode[string](ping)
+				utils.Check(err)
+
+				startTime := time.Now()
+
+				_, err = conn.Write(packet)
+				utils.Check(err)
+
+				_, err = conn.Read(nil)
+				utils.Check(err)
+
+				stopTime := time.Now()
+
+				elapsedTime := stopTime.Sub(startTime).Seconds()
+
+				srv.mMu.Lock()
+				srv.Latency = float32(elapsedTime)
+				srv.Jitter = float32(elapsedTime)
+				srv.mMu.Unlock()
+
+				// todo: metric setting
+			}
+		}
+	}()
+
+	log.Printf("measuring metrics for server '%v'\n", srv.Address)
 }
 
 // ContentExists checks if a provided content is available in any of the active
 // servers.
 func (r *Rendezvous) ContentExists(contentName string) bool {
-	for k, s := range r.Servers {
-		for _, c := range s.Content {
-			if c.Name == contentName {
-				log.Printf("Found %v in server %v", contentName, k)
+
+	for _, srv := range r.Servers {
+		for _, content := range srv.Content {
+			if content.Name == contentName {
 				return true
 			}
 		}
 	}
-	log.Printf("%v is not available in any of the active servers.", contentName)
+
 	return false
 }
 
-// GetBestServer returns the connection to the best server with contentName available
-func (r *Rendezvous) GetBestServer(contentName string) *net.TCPConn {
-	var bestSv *ServerInfo
-	for _, v := range r.Servers {
-		if !utils.Contains(v.Content, contentName) { // if server doesnt have contentName skip iteration
+// GetBestServerConn returns the connection to the best server (better metric)
+// with the content (contentName) available.
+func (r *Rendezvous) GetBestServerConn(contentName string) *net.TCPConn {
+	var best *ServerInfo
+
+	for _, srv := range r.Servers {
+
+		if !utils.Contains(srv.Content, contentName) { // if server does not contentName, skip iteration
 			continue
 		}
-		if bestSv == nil || bestSv.CalculateMetrics() < v.CalculateMetrics() {
-			bestSv = v
+
+		if best == nil || best.CalculateMetrics() < srv.CalculateMetrics() {
+			best = srv
 		}
 	}
-	return bestSv.Conn
+	return best.Conn
 }
 
 // IsStreaming checks whether the current node is streaming a certain content by its contentName.
