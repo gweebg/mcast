@@ -125,7 +125,8 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 
 		if response.Header.Flags.OnlyHasFlag(packets.PORT) {
 
-			videoSource := utils.ReplacePortFromAddressString(source, response.Payload.Port)
+			// todo: is this the right address ?
+			videoSource := utils.ReplacePortFromAddressString("127.0.0.1:0000", response.Payload.Port)
 
 			relayPort := strconv.FormatUint(n.NextPort(), 10)
 			relay := NewRelay(contentName, videoSource, relayPort)

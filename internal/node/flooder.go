@@ -114,7 +114,7 @@ func filterNeighbour(neighbour netip.AddrPort, neighbourSlice []netip.AddrPort) 
 
 	var result []netip.AddrPort
 	for _, addrPort := range neighbourSlice {
-		if addrPort != neighbour {
+		if addrPort.Addr() != neighbour.Addr() {
 			result = append(result, addrPort)
 		}
 	}
