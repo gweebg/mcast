@@ -1,11 +1,11 @@
 package server
 
 import (
-	"github.com/gweebg/mcast/internal/flags"
 	"github.com/gweebg/mcast/internal/handlers"
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/streamer"
 	"github.com/gweebg/mcast/internal/utils"
+
 	"log"
 	"net"
 	"net/netip"
@@ -15,16 +15,6 @@ import (
 type Packet struct {
 	packets.BasePacket[string]
 }
-
-const (
-	WAKE flags.FlagType = 0b1
-	CONT flags.FlagType = 0b10
-	CSND flags.FlagType = 0b100
-	STOP flags.FlagType = 0b1000
-	OK   flags.FlagType = 0b10000
-	REQ  flags.FlagType = 0b100000
-	PING flags.FlagType = 0b1000000
-)
 
 type Server struct {
 	Address netip.AddrPort
@@ -91,13 +81,13 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 		switch p.Header.Flag {
 
-		case WAKE: // received WAKE
+		case packets.WAKE: // received WAKE
 			s.OnWake(conn)
 
-		case REQ: // received REQ
+		case packets.REQ: // received REQ
 			s.OnContent(conn, p)
 
-		case STOP: // received STOP
+		case packets.STOP: // received STOP
 			s.OnStop(conn, p)
 
 		}
@@ -162,7 +152,7 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 	recvPack, err := packets.Decode[string](response[:n])
 	utils.Check(err)
 
-	if recvPack.Header.Flag.OnlyHasFlag(OK) {
+	if recvPack.Header.Flag.OnlyHasFlag(packets.OK) {
 
 		log.Printf("(%v) received response with header 'OK'\n", remote)
 

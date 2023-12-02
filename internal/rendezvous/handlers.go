@@ -7,7 +7,6 @@ import (
 
 	"github.com/gweebg/mcast/internal/node"
 	"github.com/gweebg/mcast/internal/packets"
-	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
 )
 
@@ -115,7 +114,7 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	resp, err := packets.Decode[int](responseBuffer[:n])
 	utils.Check(err)
 
-	if !resp.Header.Flag.OnlyHasFlag(server.CSND) {
+	if !resp.Header.Flag.OnlyHasFlag(packets.CSND) {
 		log.Printf("asked server '%v' for '%v', but recieved nothing\n", conn.RemoteAddr().String(), contentName)
 		reply(
 			packets.Miss(requestId, contentName),

@@ -5,7 +5,6 @@ import (
 	"encoding/gob"
 
 	"github.com/gweebg/mcast/internal/flags"
-	"github.com/gweebg/mcast/internal/server"
 )
 
 type PacketHeader struct {
@@ -45,10 +44,20 @@ func Decode[T any](data []byte) (BasePacket[T], error) {
 
 }
 
+const (
+	WAKE flags.FlagType = 0b1
+	CONT flags.FlagType = 0b10
+	CSND flags.FlagType = 0b100
+	STOP flags.FlagType = 0b1000
+	OK   flags.FlagType = 0b10000
+	REQ  flags.FlagType = 0b100000
+	PING flags.FlagType = 0b1000000
+)
+
 func Wake() BasePacket[string] {
 	return BasePacket[string]{
 		Header: PacketHeader{
-			Flag: server.WAKE,
+			Flag: WAKE,
 		},
 	}
 }
@@ -56,7 +65,7 @@ func Wake() BasePacket[string] {
 func Request(contentName string) BasePacket[string] {
 	return BasePacket[string]{
 		Header: PacketHeader{
-			Flag: server.REQ,
+			Flag: REQ,
 		},
 		Payload: contentName,
 	}
@@ -65,7 +74,7 @@ func Request(contentName string) BasePacket[string] {
 func Ok() BasePacket[string] {
 	return BasePacket[string]{
 		Header: PacketHeader{
-			Flag: server.OK,
+			Flag: OK,
 		},
 	}
 }
@@ -73,7 +82,7 @@ func Ok() BasePacket[string] {
 func Stop(contentName string) BasePacket[string] {
 	return BasePacket[string]{
 		Header: PacketHeader{
-			Flag: server.STOP,
+			Flag: STOP,
 		},
 		Payload: contentName,
 	}
@@ -82,7 +91,7 @@ func Stop(contentName string) BasePacket[string] {
 func Ping() BasePacket[string] {
 	return BasePacket[string]{
 		Header: PacketHeader{
-			Flag: server.PING,
+			Flag: PING,
 		},
 		Payload: "hello!",
 	}

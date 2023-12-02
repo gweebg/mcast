@@ -268,7 +268,7 @@ func (r *Rendezvous) GetBestServerConn(contentName string) *net.TCPConn {
 
 	for _, srv := range r.Servers {
 
-		if !utils.Contains(srv.Content, contentName) { // if server does not contentName, skip iteration
+		if !Contains(srv.Content, contentName) { // if server does not contentName, skip iteration
 			continue
 		}
 
