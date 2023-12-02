@@ -3,8 +3,11 @@ package rendezvous
 import (
 	"log"
 	"net"
+	"strconv"
 
+	"github.com/gweebg/mcast/internal/node"
 	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
 )
 
@@ -22,11 +25,11 @@ func reply(response packets.Packet, conn net.Conn) {
 
 func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	/*
-		did I handle the packet ? (check requestId in db)
-		  no ->  do i have this content?
-			    yes -> answer with FOUND 
-                no -> answer with a MISS
-		  yes -> ignore
+				did I handle the packet ? (check requestId in db)
+				  no ->  do i have this content?
+					    yes -> answer with FOUND
+		                no -> answer with a MISS
+				  yes -> ignore
 	*/
 
 	requestId := incoming.Header.RequestId
@@ -46,6 +49,7 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 
 	if r.ContentExists(contentName) {
 		// this content is available
+		// todo: verificar valor do r.Address.String()
 		reply(
 			packets.Found(requestId, contentName, r.Address.String()),
 			conn,
@@ -59,11 +63,10 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	}
 }
 
-// fix: adapt to Rendezvous
-func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
+func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	/*
 		am I streaming the content ?
-			yes -> reply with PORT, wait for OK, add source address to relay
+			yes -> reply with PORT
 
 			no -> did I receive a positive answer for this request id before ?
 				yes -> forward packet to that address & wait for PORT
@@ -74,11 +77,11 @@ func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	contentName := incoming.Payload.ContentName
 	log.Printf("(%v) received stream packet from '%v'\n", requestId, incoming.Header.Source)
 
-	defer utils.CloseConnection(conn, conn.RemoteAddr().String()) // todo: ???
+	defer utils.CloseConnection(conn, conn.RemoteAddr().String())
 
-	if n.IsStreaming(contentName) {
+	if r.IsStreaming(contentName) {
 
-		relay, exists := n.RelayPool[contentName] // get relay for contentName
+		relay, exists := r.RelayPool[contentName] // get relay for contentName
 		if !exists {
 			log.Fatalf("relay does not exist for content '%v'\n", contentName)
 		}
@@ -93,39 +96,37 @@ func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
-    // todo: get content from best server, create and add stream to relay
-    incoming.Header.Hops++
+	incoming.Header.Hops++
 
-    servConn := getBestServer(contentName)
-        
+	// todo: get content from best server, create and add stream to relay
+	bestServ := r.GetBestServer(contentName)
 
-    response, err := follow(incoming, source)
-    if err != nil || response.Header.Flags.OnlyHasFlag(packets.MISS) {
-        reply(
-            packets.Miss(requestId, contentName),
-            conn,
-        )
-        return
-    }
+	packet := packets.Request(contentName)
+	// enviar CONT a source
+	buffer, err := packets.Encode[string](packet)
+	utils.Check(err)
 
-		if response.Header.Flags.OnlyHasFlag(packets.PORT) {
+	// sending packet to dest
+	_, err = bestServ.Write(buffer)
+	if err != nil {
+		log.Printf("(handlers.go) cannot write packet to '%v'\n", bestServ)
+		return
+	}
 
-			videoSource := utils.ReplacePortFromAddressString(source, response.Payload.Port)
+	// receber CSND
+	// reading and decoding the response
+	responseBuffer := make([]byte, 1024)
+	n, err := bestServ.Read(responseBuffer)
+	if err != nil {
+		log.Printf("(handlers.go) cannot read packet from '%v'\n", bestServ.RemoteAddr().String())
+		return
+	}
 
-			relayPort := strconv.FormatUint(r.NextPort(), 10)
-			relay := NewRelay(contentName, videoSource, relayPort)
+	resp, err := packets.Decode[int](responseBuffer[:n])
+	utils.Check(err)
 
-			err := n.AddRelay(contentName, relay)
-			utils.Check(err)
-
-			go relay.Loop()
-
-			reply(packets.Port(requestId, contentName, relay.Port), conn)
-			return
-
-		}
-
-	} else {
+	if !resp.Header.Flag.OnlyHasFlag(server.CSND) {
+		log.Printf("Asked server %v for %v, but recieved nothing\n", conn.RemoteAddr().String(), contentName)
 		reply(
 			packets.Miss(requestId, contentName),
 			conn,
@@ -133,4 +134,17 @@ func (n *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
+    videoSourcePort := strconv.FormatInt(int64(resp.Payload),10)
+	videoSource := utils.ReplacePortFromAddressString("127.0.0.1:0000", videoSourcePort)
+
+	relayPort := strconv.FormatUint(r.NextPort(), 10)
+	relay := node.NewRelay(contentName, videoSource, relayPort)
+
+	err = r.AddRelay(contentName, relay)
+	utils.Check(err)
+
+	go relay.Loop()
+
+	reply(packets.Port(requestId, contentName, relay.Port), conn)
+	return
 }

@@ -1,6 +1,7 @@
 package rendezvous
 
 import (
+	"errors"
 	"log"
 	"net"
 	"net/netip"
@@ -11,6 +12,7 @@ import (
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/server"
 	"github.com/gweebg/mcast/internal/utils"
+	"golang.org/x/exp/slices"
 )
 
 // Falta:
@@ -38,10 +40,15 @@ type ServerInfo struct {
 	Conn       *net.TCPConn
 }
 
+// todo: verificar que este calculo esta certo
+func (s *ServerInfo) CalculateMetrics() float32 {
+	return s.Latency*0.6 + s.Jitter*0.4/100
+}
+
 func NewServers(addrs []string) Servers {
 	srvs := make(Servers)
 	for _, a := range addrs {
-		srvs[a].Address = a
+		srvs[a] = &ServerInfo{Address: a, Content: make([]server.ConfigItem, 0)}
 	}
 	return srvs
 }
@@ -71,13 +78,13 @@ func New(addrString string, servers ...string) *Rendezvous {
 
 	addr, err := netip.ParseAddrPort(addrString)
 	utils.Check(err)
-    // fix: inicializar currentPort
 	return &Rendezvous{
-		Address:    addr,
-		Servers:    NewServers(servers),
-		Requests:   node.NewRequestDb(),
-		TCPHandler: *handler,
-		RelayPool:  make(map[string]*node.Relay),
+		Address:     addr,
+		Servers:     NewServers(servers),
+		Requests:    node.NewRequestDb(),
+		TCPHandler:  *handler,
+		CurrentPort: 20000,
+		RelayPool:   make(map[string]*node.Relay),
 	}
 }
 
@@ -124,8 +131,6 @@ func Handler(conn net.Conn, va ...interface{}) {
 			rendezvous.OnDiscovery(p, conn)
 		case packets.STREAM:
 			rendezvous.OnStream(p, conn)
-		case server.CSND:
-            // todo:  
 		}
 
 	}
@@ -157,15 +162,13 @@ func (r *Rendezvous) connectToServer(servAddr string) {
 	log.Printf("recieved %v from %v", recv.Payload, servAddr)
 
 	r.sMu.Lock()
-
-    if _, exists := r.Servers[servAddr]; !exists {
+	if _, exists := r.Servers[servAddr]; !exists {
 		r.Servers[servAddr].Content = recv.Payload
-        r.Servers[servAddr].Conn = conn
+		r.Servers[servAddr].Conn = conn
 	}
 	r.sMu.Unlock()
 
-	// todo: go routine que lanca a funcao que calcula as metricas
-
+	// fix: go routine que lanca a funcao que calcula as metricas
 }
 
 func (r *Rendezvous) setupServers(serverAddrs []string) {
@@ -177,32 +180,59 @@ func (r *Rendezvous) setupServers(serverAddrs []string) {
 // ContentExists checks if a provided content is available in any of the active
 // servers.
 func (r *Rendezvous) ContentExists(contentName string) bool {
-    for k, s := range r.Servers {
-        for _, c := range s.Content {
-            if c.Name == contentName {
-                log.Printf("Found %v in server %v", contentName, k)
-                return true
-            }
-        }
-    }
-    log.Printf("%v is not available in any of the active servers.", contentName)
-    return false
+	for k, s := range r.Servers {
+		for _, c := range s.Content {
+			if c.Name == contentName {
+				log.Printf("Found %v in server %v", contentName, k)
+				return true
+			}
+		}
+	}
+	log.Printf("%v is not available in any of the active servers.", contentName)
+	return false
+}
+
+// GetBestServer returns the connection to the best server with contentName available
+func (r *Rendezvous) GetBestServer(contentName string) *net.TCPConn {
+	var bestSv *ServerInfo
+	for _, v := range r.Servers {
+		if !slices.Contains(v.Content, contentName) { // if server doesnt have contentName skip iteration
+			continue
+		}
+		if bestSv == nil || bestSv.CalculateMetrics() < v.CalculateMetrics() {
+			bestSv = v
+		}
+	}
+	return bestSv.Conn
 }
 
 // IsStreaming checks whether the current node is streaming a certain content by its contentName.
 func (r *Rendezvous) IsStreaming(contentName string) bool {
-    r.rMu.RLock()
-    defer r.rMu.RUnlock()
+	r.rMu.RLock()
+	defer r.rMu.RUnlock()
 
-    if _, exists := r.RelayPool[contentName]; exists {
-        return true
-    }
-    return false
+	if _, exists := r.RelayPool[contentName]; exists {
+		return true
+	}
+	return false
 }
-
 
 func (r *Rendezvous) NextPort() uint64 {
 	port := r.CurrentPort
 	r.CurrentPort++
 	return port
+}
+
+func (r *Rendezvous) AddRelay(contentName string, relay *node.Relay) error {
+
+	r.rMu.Lock()
+	defer r.rMu.Unlock()
+
+	_, exists := r.RelayPool[contentName]
+	if exists {
+		return errors.New("relay for content '" + contentName + "' already exists.")
+	}
+
+	r.RelayPool[contentName] = relay
+	return nil
 }
