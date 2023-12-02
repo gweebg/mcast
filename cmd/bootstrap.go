@@ -9,16 +9,21 @@ import (
 
 func main() {
 
-	configFlag := flag.String("config", "config.json", "indicate relative path to configuration json file")
+	address := flag.String("address", ":5001", "represents the listening address for the bootstrapper")
+	config := flag.String("config", "config.json", "indicate relative path to configuration json file")
 	flag.Parse()
 
-	if *configFlag == "config.json" {
-		log.Print("no configuration file specified, defaulting to 'config.json'")
+	if *config == "config.json" {
+		log.Printf("no configuration file specified, defaulting to '%v'\n", *config)
+	}
+
+	if *address == ":5001" {
+		log.Printf("no address specified, defaulting to '%v'\n", *address)
 	}
 
 	bs := bootstrap.New(
-		*configFlag,
-		":5001",
+		*config,
+		*address,
 	)
 
 	utils.PrintStruct(bs.Config)
