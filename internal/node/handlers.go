@@ -65,7 +65,7 @@ func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 		if response.Header.Flags.OnlyHasFlag(packets.FOUND) {
 			log.Printf("(%v) found streaming source\n", requestId)
 			n.SetPositive(requestId, response.Header.Source)
-			incoming.Header.Source = n.Self.SelfIp // todo: check this
+			response.Header.Source = n.Self.SelfIp // todo: check this
 			log.Printf("(handling %v) received positive response from flooding, pos=%v\n", remote, n.Self.SelfIp)
 		} else {
 			log.Printf("(handling %v) received negative response from flooding\n", remote)

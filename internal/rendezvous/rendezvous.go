@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,8 +69,11 @@ func (r *Rendezvous) Run() {
 		r.connectToServer(srv.Address)
 	}
 
+    lAddrStr := "0.0.0.0:" + strconv.FormatInt(int64(r.Address.Port()),10)
+    lAddr,err := netip.ParseAddrPort(lAddrStr)
+    utils.Check(err)
 	r.TCPHandler.Listen(
-		r.Address,
+        lAddr,
 		r.TCPHandler.Handle,
 		r,
 	)
@@ -256,10 +260,8 @@ func (r *Rendezvous) IsStreaming(contentName string) bool {
 	r.rMu.RLock()
 	defer r.rMu.RUnlock()
 
-	if _, exists := r.RelayPool[contentName]; exists {
-		return true
-	}
-	return false
+	_, exists := r.RelayPool[contentName]
+    return exists
 }
 
 func (r *Rendezvous) NextPort() uint64 {

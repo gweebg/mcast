@@ -2,15 +2,17 @@ package node
 
 import (
 	"errors"
+	"log"
+	"net"
+	"net/netip"
+	"strconv"
+	"sync"
+
 	"github.com/google/uuid"
 	"github.com/gweebg/mcast/internal/bootstrap"
 	"github.com/gweebg/mcast/internal/handlers"
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
-	"log"
-	"net"
-	"net/netip"
-	"sync"
 )
 
 type Node struct {
@@ -71,8 +73,12 @@ func New(bootstrapAddr string) *Node {
 // Run starts the main listening loop and passes each connection to Handler.
 func (n *Node) Run() {
 
+    lAddrStr := "0.0.0.0:" + strconv.FormatInt(int64(n.Address.Port()),10)
+    lAddr,err := netip.ParseAddrPort(lAddrStr)
+    utils.Check(err)
+
 	n.TCPHandler.Listen(
-		n.Address,
+        lAddr,
 		n.TCPHandler.Handle,
 		n,
 	)
