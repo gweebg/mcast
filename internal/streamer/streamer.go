@@ -184,12 +184,13 @@ func (s *Streamer) Stream() {
 
 			_, err = s.conn.Write(buffer[:size])
 			if err != nil {
-				log.Printf("lost connection with '%v'\n", s.Address)
+				log.Printf("(streamer %v, %v) lost connection\n", s.Address, s.ContentName)
 				s.cleanup(sync, false)
 				return
 			}
 
-			// log.Printf("sent packet #%d (%d bytes)\n", seq, size)
+			// todo: remove
+			log.Printf("sent packet #%d (%d bytes)\n", seq, size)
 			seq++
 		}
 	}

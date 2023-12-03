@@ -63,8 +63,6 @@ func New(addrString string, servers ...string) *Rendezvous {
 // Run starts the main listening loop and passes each connection to Handler.
 func (r *Rendezvous) Run() {
 
-	utils.PrintStruct(r)
-
 	for _, srv := range r.Servers {
 		log.Printf("(setup) retrieving information from server '%v'\n", srv.Address)
 		r.connectToServer(srv.Address)
@@ -182,7 +180,7 @@ func (r *Rendezvous) measure(conn *net.TCPConn) {
 		for {
 			select {
 
-			case <-srv.tickerChan:
+			case <-srv.TickerChan:
 				return
 
 			case <-srv.Ticker.C:
@@ -235,9 +233,9 @@ func (r *Rendezvous) ContentExists(contentName string) bool {
 	return false
 }
 
-// GetBestServerConn returns the connection to the best server (better metric)
+// GetBestServer returns the connection to the best server (better metric)
 // with the content (contentName) available.
-func (r *Rendezvous) GetBestServerConn(contentName string) *net.TCPConn {
+func (r *Rendezvous) GetBestServer(contentName string) *ServerInfo {
 	var best *ServerInfo
 
 	for _, srv := range r.Servers {
@@ -250,7 +248,7 @@ func (r *Rendezvous) GetBestServerConn(contentName string) *net.TCPConn {
 			best = srv
 		}
 	}
-	return best.Conn
+	return best
 }
 
 // IsStreaming checks whether the current node is streaming a certain content by its contentName.

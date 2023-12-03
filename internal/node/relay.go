@@ -21,9 +21,11 @@ type Relay struct {
 	// UDP listener on Origin.
 	receiver *net.UDPConn
 	// Slice containing the addresses (as *UDPAddr) to forward the bytes to.
-	Addresses []*net.UDPAddr
+	Addresses []*net.UDPAddr // no longer needed as for Connections
 	// Default port for forwarding addresses.
 	Port string
+
+	Connections []*net.UDPConn
 }
 
 // NewRelay creates a new Relay object.
@@ -38,6 +40,7 @@ func NewRelay(contentName string, origin string, port string) *Relay {
 	return &Relay{
 		ContentName: contentName,
 		Addresses:   make([]*net.UDPAddr, 0),
+		Connections: make([]*net.UDPConn, 0),
 		Origin:      origin,
 		receiver:    conn,
 		Port:        port,
@@ -66,10 +69,13 @@ func (r *Relay) Add(address string) error {
 	asUdp, err := net.ResolveUDPAddr("udp", address)
 	utils.Check(err)
 
-	r.Addresses = append(r.Addresses, asUdp)
-	log.Printf("added '%v' to relaying group of content '%v'\n", address, r.ContentName)
-	return nil
+	//udpConn, err := net.DialUDP("udp", nil, asUdp)
+	//utils.Check(err)
 
+	r.Addresses = append(r.Addresses, asUdp)
+	//r.Connections = append(r.Connections, udpConn)
+
+	return nil
 }
 
 // Loop reads a UDP stream from Origin and forwards it to the addresses specified in Addresses.
@@ -79,14 +85,17 @@ func (r *Relay) Loop() {
 	for {
 
 		n, _, err := r.receiver.ReadFromUDP(buffer)
+		//log.Printf("reading from %v\n", r.Origin)
 		if err != nil {
-			break
+			continue
 		}
 
 		r.mu.RLock()
 
 		if len(r.Addresses) > 0 {
 			for _, addr := range r.Addresses {
+				//_, err := conn.Write(buffer[:n])
+				//log.Printf("sent to %v\n", conn.RemoteAddr().String())
 				_, err := r.receiver.WriteToUDP(buffer[:n], addr)
 				if err != nil {
 					// log.Printf("cannot relay packets to %v\n", addr.String())

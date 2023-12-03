@@ -50,9 +50,6 @@ func New(addr, path string) *Server {
 
 // Run function is responsible for running the main loop of the server.
 func (s *Server) Run() {
-
-	utils.PrintStruct(s)
-
 	s.TCPHandler.Listen(
 		s.Address,           // remote address
 		s.TCPHandler.Handle, // request handler
@@ -118,7 +115,7 @@ func (s *Server) OnWake(conn net.Conn) {
 	size, err := conn.Write(encPac) // send the packet
 	utils.Check(err)
 
-	log.Printf("(handling %v) answered with packet 'CSND' (%d bytes)\n", remote, size)
+	log.Printf("(handling %v) answered with packet 'CONT' (%d bytes)\n", remote, size)
 }
 
 // OnContent handles the request 'REQ' from the client.
@@ -139,19 +136,17 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 	}
 
 	// encode the packet with the port as a string
-	encPack, err := packets.Encode[string](ContentPortPacket(strconv.FormatInt(int64(port), 10)))
+	streamingPort := strconv.FormatInt(int64(port), 10)
+	streamAddr := utils.ReplacePortFromAddressString(conn.RemoteAddr().String(), streamingPort)
+
+	encPack, err := packets.Encode[string](ContentPortPacket(streamAddr))
 	utils.Check(err)
 
 	// send response packet
 	_, err = conn.Write(encPack)
 	utils.Check(err)
 
-	log.Printf("(handling %v) answered with packet 'CONT' (port: %d)\n", remote, port)
-
-	// get the address where to stream the video
-	portString := strconv.FormatInt(int64(port), 10)
-	streamAddr := utils.ReplacePortFromAddressString(conn.RemoteAddr().String(), portString)
-
+	log.Printf("(handling %v) answered with packet 'CSND' (addr: %v)\n", remote, streamAddr)
 	log.Printf("(handling %v) setting up streaming of '%v' at '%v'\n", remote, p.Payload, streamAddr)
 	log.Printf("(handling %v) waiting for confirmation...\n", remote)
 

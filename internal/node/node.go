@@ -64,14 +64,12 @@ func New(bootstrapAddr string) *Node {
 		Requests:    NewRequestDb(),
 		RelayPool:   make(map[string]*Relay),
 		Positive:    make(map[uuid.UUID]string),
-		CurrentPort: 30000,
+		CurrentPort: 8000,
 	}
 }
 
 // Run starts the main listening loop and passes each connection to Handler.
 func (n *Node) Run() {
-
-	utils.PrintStruct(n)
 
 	n.TCPHandler.Listen(
 		n.Address,

@@ -3,10 +3,12 @@ package main
 import (
 	"github.com/gweebg/mcast/internal/node"
 	"github.com/gweebg/mcast/internal/utils"
+	"log"
 )
 
 func main() {
 
+	list := make([]*node.Relay, 0)
 	r := node.NewRelay("video.mp4", "127.0.0.1:5000", "5001")
 
 	err := r.Add("127.0.0.1:5001")
@@ -14,6 +16,10 @@ func main() {
 
 	err = r.Add("127.0.0.1:5002")
 	utils.Check(err)
+
+	list = append(list, r)
+
+	log.Println(list)
 
 	go r.Loop()
 

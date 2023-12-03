@@ -71,9 +71,7 @@ func main() {
 		return
 	}
 
-	streamingAddress := utils.ReplacePortFromAddressString("127.0.0.1:0000", result.Payload.Port)
-	log.Printf("content '%v' is streaming at '%v'\n", *content, streamingAddress)
-
-	utils.ListenStream(streamingAddress)
+	log.Printf("content '%v' is streaming at '%v'\n", *content, result.Payload.Port)
+	utils.ListenStream(result.Payload.Port)
 
 }

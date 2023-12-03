@@ -18,7 +18,7 @@ func NewServers(addrs []string) Servers {
 		srvs[addr] = &ServerInfo{
 			Address:    addr,
 			Content:    make([]server.ConfigItem, 0),
-			tickerChan: make(chan bool),
+			TickerChan: make(chan bool),
 		}
 	}
 
@@ -47,7 +47,7 @@ type ServerInfo struct {
 	// used to send metric packets once every 5 seconds
 	Ticker *time.Ticker
 	// needed to stop the ticker on teardown
-	tickerChan chan bool
+	TickerChan chan bool
 }
 
 // CalculateMetrics calculates the general metrics of a server, the Latency is given

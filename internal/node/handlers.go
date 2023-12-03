@@ -115,14 +115,15 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 			log.Fatalf("(handling %v) relay does not exist for content '%v'\n", remote, contentName)
 		}
 
-		reply(packets.Port(requestId, contentName, relay.Port), conn) // send port
-		log.Printf("(handling %v) sent 'PORT' packet, port=%v\n", remote, relay.Port)
+		// todo: changed
+		nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
+		reply(packets.Port(requestId, contentName, nextAddress), conn) // send addr:port
+		log.Printf("(handling %v) sent 'PORT' packet, addr=%v\n", remote, nextAddress)
 
-		address := utils.ReplacePortFromAddressString(remote, relay.Port)
-		err := relay.Add(address) // add client to relay
+		err := relay.Add(nextAddress) // add client to relay
 		utils.Check(err)
 
-		log.Printf("(handling %v) added client address '%v' to the relay for content '%v'\n", remote, address, contentName)
+		log.Printf("(handling %v) added client address '%v' to the relay for content '%v'\n", remote, nextAddress, contentName)
 		return
 	}
 
@@ -145,24 +146,27 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 
 		if response.Header.Flags.OnlyHasFlag(packets.PORT) {
 
+			// todo: changed
 			log.Printf("(handling %v) received 'PORT' packet from the follow\n", remote)
 
-			videoSource := utils.ReplacePortFromAddressString("127.0.0.1:9999", response.Payload.Port)
-
 			relayPort := strconv.FormatUint(n.NextPort(), 10)
-			relay := NewRelay(contentName, videoSource, relayPort)
+			relay := NewRelay(contentName, response.Payload.Port, relayPort)
 			log.Printf("(handling %v) created new relay for content '%v' at port '%v'\n", remote, contentName, relay.Port)
 
-			err := n.AddRelay(contentName, relay)
+			nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
+			err := relay.Add(nextAddress)
+			log.Printf("(handling %v) added address '%v' to relay for '%v'\n", remote, nextAddress, contentName)
+
+			err = n.AddRelay(contentName, relay)
 			utils.Check(err)
-			log.Printf("(handling %v) added address '%v' to relay for '%v'\n", remote, videoSource, contentName)
+			log.Printf("(handling %v) added relay for '%v' to the relay pool\n", remote, contentName)
 
 			go relay.Loop()
 			log.Printf("(handling %v) started relay for content '%v'\n", remote, contentName)
 
-			reply(packets.Port(requestId, contentName, relay.Port), conn)
+			reply(packets.Port(requestId, contentName, nextAddress), conn)
 
-			log.Printf("(handling %v) sent 'PORT' packet, port=%v", remote, relay.Port)
+			log.Printf("(handling %v) sent 'PORT' packet, addr=%v", remote, nextAddress)
 			return
 		}
 
