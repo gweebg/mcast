@@ -17,6 +17,7 @@ type Header struct {
 type Payload struct {
 	ContentName string
 	Port        string
+	Sdp         []byte
 }
 
 type Packet struct {
@@ -107,7 +108,7 @@ func Miss(requestId uuid.UUID, contentName string) Packet {
 
 }
 
-func Port(requestId uuid.UUID, contentName string, port string) Packet {
+func Port(requestId uuid.UUID, contentName string, port string, sdp []byte) Packet {
 
 	return Packet{
 		Header: Header{
@@ -118,6 +119,7 @@ func Port(requestId uuid.UUID, contentName string, port string) Packet {
 		Payload: Payload{
 			ContentName: contentName,
 			Port:        port,
+			Sdp:         sdp,
 		},
 	}
 

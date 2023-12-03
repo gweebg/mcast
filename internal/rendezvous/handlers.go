@@ -85,10 +85,14 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 			log.Fatalf("(handling %v) relay does not exist for content '%v'\n", remote, contentName)
 		}
 
+		// getting sdp file for the stream
+		sdp := r.SdpDatabase.MustGetSdp(contentName)
+		log.Printf("(handling %v) retrieved sdp file for content '%v'\n", remote, contentName)
+
 		// address to add to the relay
 		nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
 
-		reply(packets.Port(requestId, contentName, nextAddress), conn) // reply with streaming port
+		reply(packets.Port(requestId, contentName, nextAddress, sdp), conn) // reply with streaming port
 		log.Printf("(handling %v) responded with 'PORT' packet, addr=%v", remote, nextAddress)
 
 		err := relay.Add(nextAddress) // add client to relay
@@ -186,7 +190,28 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	}
 	log.Printf("(servers %v) sent packet 'OK'\n", svr.Address)
 
-	reply(packets.Port(requestId, contentName, nextAddress), conn) // reply to client in which port I'm streaming
+	// getting the sdp file from the server
+	sdpReqBytes := make([]byte, 35600)
+	n, err = svr.Conn.Read(sdpReqBytes)
+	utils.Check(err)
+
+	// decoding and setting sdp file
+	sdpPacket, err := packets.Decode[[]byte](sdpReqBytes[:n])
+	if sdpPacket.Header.Flag.OnlyHasFlag(packets.SDP) {
+		log.Printf("(servers %v) received packet 'SDP' for content '%v'\n", svr.Address, contentName)
+		r.SdpDatabase.SetSdp(contentName, sdpPacket.Payload)
+		log.Printf("(servers %v) set sdp file for content '%v'\n", svr.Address, contentName)
+	} else {
+		log.Printf("(servers %v) did not receive sdp file for stream of '%v'\n", remote, contentName)
+		reply(
+			packets.Miss(requestId, contentName),
+			conn,
+		)
+		log.Printf("(handling %v) sent packet 'MISS', reason 'no sdp from server'\n", remote)
+		return
+	}
+
+	reply(packets.Port(requestId, contentName, nextAddress, sdpPacket.Payload), conn) // reply to client in which port I'm streaming
 	log.Printf("(handling %v) sent packet 'PORT', addr=%v\n", remote, nextAddress)
 }
 

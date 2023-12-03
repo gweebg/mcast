@@ -46,12 +46,16 @@ func Decode[T any](data []byte) (BasePacket[T], error) {
 
 const (
 	WAKE flags.FlagType = 0b1
-	CONT flags.FlagType = 0b10
-	CSND flags.FlagType = 0b100
 	STOP flags.FlagType = 0b1000
 	OK   flags.FlagType = 0b10000
 	REQ  flags.FlagType = 0b100000
+
 	PING flags.FlagType = 0b1000000
+
+	CONT flags.FlagType = 0b10
+	CSND flags.FlagType = 0b100
+
+	SDP flags.FlagType = 0b100000
 )
 
 func Wake() BasePacket[string] {
@@ -94,5 +98,14 @@ func Ping() BasePacket[string] {
 			Flag: PING,
 		},
 		Payload: "hello!",
+	}
+}
+
+func SendSdp(sdp []byte) BasePacket[[]byte] {
+	return BasePacket[[]byte]{
+		Header: PacketHeader{
+			Flag: SDP,
+		},
+		Payload: sdp,
 	}
 }

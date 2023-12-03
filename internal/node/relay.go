@@ -2,7 +2,6 @@ package node
 
 import (
 	"errors"
-	"github.com/gweebg/mcast/internal/streamer"
 	"github.com/gweebg/mcast/internal/utils"
 	"log"
 	"net"
@@ -81,7 +80,7 @@ func (r *Relay) Add(address string) error {
 // Loop reads a UDP stream from Origin and forwards it to the addresses specified in Addresses.
 func (r *Relay) Loop() {
 
-	buffer := make([]byte, streamer.TsMtu*10)
+	buffer := make([]byte, 35600)
 	for {
 
 		n, _, err := r.receiver.ReadFromUDP(buffer)

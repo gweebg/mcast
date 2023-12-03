@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -141,4 +142,36 @@ func ListenStream(address string) {
 
 	err = ffplay.Wait()
 	Check(err)
+}
+
+type SdpDatabase struct {
+	Files map[string][]byte
+	Mu    sync.RWMutex
+}
+
+func NewSdpDatabase() *SdpDatabase {
+	return &SdpDatabase{
+		Files: make(map[string][]byte),
+	}
+}
+
+func (s *SdpDatabase) SetSdp(contentName string, content []byte) {
+
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	s.Files[contentName] = content
+}
+
+func (s *SdpDatabase) MustGetSdp(contentName string) []byte {
+
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
+
+	sdp, exists := s.Files[contentName]
+	if !exists {
+		log.Fatalf("(sdp database) sdp file for '%v' should exist, but it does not.\n", contentName)
+	}
+
+	return sdp
 }

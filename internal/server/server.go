@@ -172,6 +172,17 @@ func (s *Server) OnContent(conn net.Conn, p packets.BasePacket[string]) {
 		utils.Check(err)
 		log.Printf("(handling %v) added streamer for '%v' to the pool\n", remote, p.Payload)
 
+		sdpFile, err := stmr.GetSdp()
+		utils.Check(err)
+		log.Printf("(handling %v) fetched sdp file for content '%v'\n", remote, stmr.ContentName)
+
+		sdpPacket, err := packets.Encode[[]byte](packets.SendSdp(sdpFile))
+		utils.Check(err)
+
+		_, err = conn.Write(sdpPacket)
+		utils.Check(err)
+		log.Printf("(handling %v) sent sdp file for content '%v'\n", remote, stmr.ContentName)
+
 		go stmr.Stream()
 
 	} else {

@@ -1,6 +1,8 @@
 package rendezvous
 
-import "github.com/gweebg/mcast/internal/server"
+import (
+	"github.com/gweebg/mcast/internal/server"
+)
 
 func Contains(s []server.ConfigItem, str string) bool {
 	for _, v := range s {

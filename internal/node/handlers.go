@@ -115,9 +115,11 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 			log.Fatalf("(handling %v) relay does not exist for content '%v'\n", remote, contentName)
 		}
 
-		// todo: changed
+		sdp := n.SdpDatabase.MustGetSdp(contentName)
+		log.Printf("(handling %v) retrieved sdp file for content '%v'\n", remote, contentName)
+
 		nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
-		reply(packets.Port(requestId, contentName, nextAddress), conn) // send addr:port
+		reply(packets.Port(requestId, contentName, nextAddress, sdp), conn) // send addr:port
 		log.Printf("(handling %v) sent 'PORT' packet, addr=%v\n", remote, nextAddress)
 
 		err := relay.Add(nextAddress) // add client to relay
@@ -164,7 +166,11 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 			go relay.Loop()
 			log.Printf("(handling %v) started relay for content '%v'\n", remote, contentName)
 
-			reply(packets.Port(requestId, contentName, nextAddress), conn)
+			// setting the sdp file
+			n.SdpDatabase.SetSdp(contentName, response.Payload.Sdp)
+			log.Printf("(handling %v) set sdp file for content '%v'\n", remote, contentName)
+
+			reply(packets.Port(requestId, contentName, nextAddress, response.Payload.Sdp), conn)
 
 			log.Printf("(handling %v) sent 'PORT' packet, addr=%v", remote, nextAddress)
 			return

@@ -4,12 +4,48 @@ import (
 	"flag"
 	"log"
 	"net/netip"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
 )
+
+func SetSdpPort(originalSDP, port string) string {
+	updatedSDP := strings.ReplaceAll(originalSDP, "????", port)
+	return updatedSDP
+}
+
+func Listen(sdp []byte, content string) {
+
+	sdpFilename := "sdp_" + content + ".sdp" + time.Now().String()
+
+	tempFile, err := os.CreateTemp("", sdpFilename)
+	utils.Check(err)
+
+	defer tempFile.Close()
+
+	if _, err := tempFile.Write(sdp); err != nil {
+		utils.Check(err)
+	}
+
+	ffplay := exec.Command("ffplay", "-window_title", content,
+		"-protocol_whitelist", "pipe,udp,rtp,file", "-f", "sdp", "-i",
+		tempFile.Name())
+
+	ffplay.Stdout = os.Stdout
+	ffplay.Stderr = os.Stderr
+
+	err = ffplay.Start()
+	utils.Check(err)
+
+	err = ffplay.Wait()
+	utils.Check(err)
+}
 
 func main() {
 
@@ -72,6 +108,10 @@ func main() {
 	}
 
 	log.Printf("content '%v' is streaming at '%v'\n", *content, result.Payload.Port)
-	utils.ListenStream(result.Payload.Port)
 
+	sdpPort := strings.Split(result.Payload.Port, ":")[1]
+	sdp := SetSdpPort(string(result.Payload.Sdp), sdpPort)
+	log.Printf("received sdp file for the stream:\n%v", sdp)
+
+	Listen([]byte(sdp), result.Payload.ContentName)
 }

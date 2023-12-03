@@ -22,21 +22,23 @@ type Rendezvous struct {
 
 	// currently known servers.
 	Servers Servers
-	// Servers mutex, to prevent race conditions.
-	sMu sync.RWMutex
+	sMu     sync.RWMutex
 
 	// keeps track of handled requests.
 	Requests *node.RequestDb
 
 	// keeps track of receiving streams and who are we relaying them to.
 	RelayPool map[string]*node.Relay
-	// relay pool mutex, to prevent race conditions.
-	rMu sync.RWMutex
+	rMu       sync.RWMutex
+
 	// current operating port when creating new relays.
 	CurrentPort uint64
 
 	// tcp listener for incoming requests from other network nodes.
 	TCPHandler handlers.TCPConn
+
+	// keeps track of sdp files for the content
+	SdpDatabase *utils.SdpDatabase
 }
 
 // New creates a new Rendezvous node, returns a pointer.
@@ -57,6 +59,7 @@ func New(addrString string, servers ...string) *Rendezvous {
 		TCPHandler:  *handler,
 		CurrentPort: 9000,
 		RelayPool:   make(map[string]*node.Relay),
+		SdpDatabase: utils.NewSdpDatabase(),
 	}
 }
 

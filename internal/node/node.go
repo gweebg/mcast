@@ -40,6 +40,9 @@ type Node struct {
 
 	// each relay has a port
 	CurrentPort uint64
+
+	// keeps track of sdp files for streams
+	SdpDatabase *utils.SdpDatabase
 }
 
 // New creates a new instance of a *Node.
@@ -65,6 +68,7 @@ func New(bootstrapAddr string) *Node {
 		RelayPool:   make(map[string]*Relay),
 		Positive:    make(map[uuid.UUID]string),
 		CurrentPort: 8000,
+		SdpDatabase: utils.NewSdpDatabase(),
 	}
 }
 
