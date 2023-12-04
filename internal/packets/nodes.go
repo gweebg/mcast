@@ -55,10 +55,12 @@ const (
 	FOUND utils.FlagType = 0b10
 	MISS  utils.FlagType = 0b100
 
-	STREAM utils.FlagType = 0b1000
-	PORT   utils.FlagType = 0b10000
+	STREAM   utils.FlagType = 0b1000
+	PORT     utils.FlagType = 0b10000
+	TEARDOWN utils.FlagType = 0b100000
 )
 
+// todo: swap Port with Address
 func Discovery(requestId uuid.UUID, contentName string) Packet {
 
 	return Packet{
@@ -88,7 +90,6 @@ func Found(requestId uuid.UUID, contentName string, source string) Packet {
 			Port:        "",
 		},
 	}
-
 }
 
 func Miss(requestId uuid.UUID, contentName string) Packet {
@@ -104,7 +105,6 @@ func Miss(requestId uuid.UUID, contentName string) Packet {
 			Port:        "",
 		},
 	}
-
 }
 
 func Port(requestId uuid.UUID, contentName string, port string) Packet {
@@ -120,7 +120,6 @@ func Port(requestId uuid.UUID, contentName string, port string) Packet {
 			Port:        port,
 		},
 	}
-
 }
 
 func Stream(requestId uuid.UUID, contentName string) Packet {
@@ -136,5 +135,19 @@ func Stream(requestId uuid.UUID, contentName string) Packet {
 			Port:        "",
 		},
 	}
+}
 
+func Teardown(requestId uuid.UUID, contentName string, address string) Packet {
+
+	return Packet{
+		Header: Header{
+			Flags:     TEARDOWN,
+			RequestId: requestId,
+			Hops:      0,
+		},
+		Payload: Payload{
+			ContentName: contentName,
+			Port:        address,
+		},
+	}
 }
