@@ -5,7 +5,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/gweebg/mcast/internal/flags"
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
 	"net"
@@ -14,9 +13,9 @@ import (
 type Packet = packets.BasePacket[Node]
 
 const (
-	SEND flags.FlagType = 0b1
-	ERR  flags.FlagType = 0b10
-	GET  flags.FlagType = 0b100
+	SEND utils.FlagType = 0b1
+	ERR  utils.FlagType = 0b10
+	GET  utils.FlagType = 0b100
 )
 
 type Bootstrap struct {
@@ -125,7 +124,7 @@ func decodeAndCheckPacket(data []byte) (p packets.BasePacket[string], err error)
 	return p, err
 }
 
-func answer(node Node, flag flags.FlagType, conn net.Conn) bool {
+func answer(node Node, flag utils.FlagType, conn net.Conn) bool {
 
 	resp := Packet{
 		Header: packets.PacketHeader{

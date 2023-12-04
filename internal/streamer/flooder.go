@@ -1,4 +1,4 @@
-package node
+package streamer
 
 import (
 	"github.com/gweebg/mcast/internal/packets"
@@ -23,7 +23,7 @@ func (f Flooder) Flood(packet packets.Packet, ignore ...netip.AddrPort) (packets
 
 	neighbours := f.Neighbours
 	if len(ignore) == 1 {
-		neighbours = filterNeighbour(ignore[0], neighbours)
+		neighbours = FilterNeighbour(ignore[0], neighbours)
 	}
 
 	var wg sync.WaitGroup
@@ -109,8 +109,8 @@ func (f Flooder) sendTo(dest netip.AddrPort, content packets.Packet, wg *sync.Wa
 
 }
 
-// filterNeighbour removes from the slice the element that's equal to neighbour
-func filterNeighbour(neighbour netip.AddrPort, neighbourSlice []netip.AddrPort) []netip.AddrPort {
+// FilterNeighbour removes from the slice the element that's equal to neighbour
+func FilterNeighbour(neighbour netip.AddrPort, neighbourSlice []netip.AddrPort) []netip.AddrPort {
 
 	var result []netip.AddrPort
 	for _, addrPort := range neighbourSlice {

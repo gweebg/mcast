@@ -2,12 +2,11 @@ package node
 
 import (
 	"errors"
-	"github.com/google/uuid"
 	"github.com/gweebg/mcast/internal/bootstrap"
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
+	"log"
 	"net"
-	"sync"
 )
 
 const ReadSize = 1024
@@ -49,31 +48,49 @@ func setupSelf(bootstrapAddr string) (bootstrap.Node, error) {
 	return bootstrap.Node{}, errors.New("expected flag SEND from bootstrapper, but received another")
 }
 
-/* ----------------------------------------------------------------------------- */
+func Reply(response packets.Packet, conn net.Conn) {
 
-type RequestDb struct {
-	data map[uuid.UUID]bool
-	mu   sync.RWMutex
-}
+	enc, err := response.Encode()
+	utils.Check(err)
 
-func NewRequestDb() *RequestDb {
-	return &RequestDb{
-		data: make(map[uuid.UUID]bool),
+	_, err = conn.Write(enc)
+	if err != nil {
+		log.Printf("(handlers.go) could not write to '%v'\n", conn.RemoteAddr().String())
 	}
+
 }
 
-func (r *RequestDb) IsHandled(id uuid.UUID) bool {
+func Follow(packet packets.Packet, destination string) (packets.Packet, error) {
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	// connection setup
+	conn, err := net.Dial("tcp", destination)
+	if err != nil {
+		log.Printf("(handlers.go) cannot connect to '%v' via tcp\n", destination)
+		return packets.Packet{}, err
+	}
+	defer utils.CloseConnection(conn, destination)
 
-	_, exists := r.data[id]
-	return exists
-}
+	// packet encoding
+	buffer, err := packet.Encode()
+	utils.Check(err)
 
-func (r *RequestDb) Set(id uuid.UUID, state bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// sending packet to dest
+	_, err = conn.Write(buffer)
+	if err != nil {
+		log.Printf("(handlers.go) cannot write packet to '%v'\n", destination)
+		return packets.Packet{}, err
+	}
 
-	r.data[id] = state
+	// reading and decoding the response
+	responseBuffer := make([]byte, 1024)
+	n, err := conn.Read(responseBuffer)
+	if err != nil {
+		log.Printf("(handlers.go) cannot read packet from '%v'\n", destination)
+		return packets.Packet{}, err
+	}
+
+	resp, err := packets.DecodePacket(responseBuffer[:n])
+	utils.Check(err)
+
+	return resp, nil
 }

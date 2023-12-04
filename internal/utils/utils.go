@@ -142,3 +142,13 @@ func ListenStream(address string) {
 	err = ffplay.Wait()
 	Check(err)
 }
+
+func SumSliceInt64(items []int64) int64 {
+
+	var sum int64 = 0
+	for _, val := range items {
+		sum += val
+	}
+	return sum
+
+}

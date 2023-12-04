@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/gob"
 	"github.com/google/uuid"
-	"github.com/gweebg/mcast/internal/flags"
+	"github.com/gweebg/mcast/internal/utils"
 )
 
 type Header struct {
-	Flags     flags.FlagType
+	Flags     utils.FlagType
 	RequestId uuid.UUID
 	Source    string
 	Hops      uint64
@@ -51,12 +51,12 @@ func DecodePacket(data []byte) (Packet, error) {
 }
 
 const (
-	DISC  flags.FlagType = 0b1
-	FOUND flags.FlagType = 0b10
-	MISS  flags.FlagType = 0b100
+	DISC  utils.FlagType = 0b1
+	FOUND utils.FlagType = 0b10
+	MISS  utils.FlagType = 0b100
 
-	STREAM flags.FlagType = 0b1000
-	PORT   flags.FlagType = 0b10000
+	STREAM utils.FlagType = 0b1000
+	PORT   utils.FlagType = 0b10000
 )
 
 func Discovery(requestId uuid.UUID, contentName string) Packet {

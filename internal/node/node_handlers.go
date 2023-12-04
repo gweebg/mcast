@@ -2,6 +2,7 @@ package node
 
 import (
 	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/streamer"
 	"github.com/gweebg/mcast/internal/utils"
 	"log"
 	"net"
@@ -9,7 +10,7 @@ import (
 	"strconv"
 )
 
-func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
+func (n *Node) NodeOnDiscovery(incoming packets.Packet, conn net.Conn) {
 	/*
 		did I handle the packet ? (check requestId in db)
 		  no -> am I streaming the content ?
@@ -26,14 +27,14 @@ func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 
 	log.Printf("(handling %v) received 'DISC' packet for content '%v'\n", remote, contentName)
 
-	defer func(n *Node) {
-		n.Requests.Set(requestId, true)
+	defer func() {
+		n.HandledRequests.Set(requestId, true)
 		log.Printf("(handling %v) request '%v' set to handled\n", remote, requestId)
-	}(n) // set packet as handled
+	}() // set packet as handled
 
-	if n.Requests.IsHandled(requestId) {
+	if n.HandledRequests.IsHandled(requestId) {
 		log.Printf("(handling %v) incoming packet refers to a duplicate request\n", remote)
-		reply(
+		Reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
@@ -41,9 +42,9 @@ func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 		return
 	} // packet was already handled
 
-	if n.IsStreaming(contentName) {
+	if n.RelayPool.IsStreaming(contentName) {
 		log.Printf("(handling %v) i am streaming the content '%v'\n", requestId, contentName)
-		reply(
+		Reply(
 			packets.Found(requestId, contentName, n.Self.SelfIp),
 			conn,
 		)
@@ -54,7 +55,7 @@ func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	addrPort, err := netip.ParseAddrPort(conn.RemoteAddr().String())
 	utils.Check(err)
 
-	if len(filterNeighbour(addrPort, n.Self.Neighbours)) > 0 { // do I have neighbours ?
+	if len(streamer.FilterNeighbour(addrPort, n.Self.Neighbours)) > 0 { // do I have neighbours ?
 
 		log.Printf("(handling %v) flooding the neighbours, looking for '%v'\n", remote, contentName)
 		incoming.Header.Hops++
@@ -63,20 +64,25 @@ func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 		response, _ := n.Flooder.Flood(incoming, addrPort)
 
 		if response.Header.Flags.OnlyHasFlag(packets.FOUND) {
+
 			log.Printf("(%v) found streaming source\n", requestId)
-			n.SetPositive(requestId, response.Header.Source)
-			response.Header.Source = n.Self.SelfIp // todo: check this
+
+			err := n.PositiveRequests.Set(requestId, response.Header.Source)
+			utils.Check(err)
+
+			response.Header.Source = n.Self.SelfIp
 			log.Printf("(handling %v) received positive response from flooding, pos=%v\n", remote, n.Self.SelfIp)
+
 		} else {
 			log.Printf("(handling %v) received negative response from flooding\n", remote)
 		}
 
-		reply(response, conn)
+		Reply(response, conn)
 		log.Printf("(handling %v) sent packet from flood for content '%v'", remote, contentName)
 
 	} else { // I don't have neighbours
 		log.Printf("(handling %v) list of neighbours is empty\n", remote)
-		reply(
+		Reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
@@ -85,7 +91,7 @@ func (n *Node) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	}
 }
 
-func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
+func (n *Node) NodeOnStream(incoming packets.Packet, conn net.Conn) {
 
 	/*
 		am I streaming the content ?
@@ -99,6 +105,7 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 	remote := conn.RemoteAddr().String()
 	requestId := incoming.Header.RequestId
 	contentName := incoming.Payload.ContentName
+
 	log.Printf("(handling %v) received 'STREAM' packet for content '%v'\n", remote, contentName)
 
 	defer func() {
@@ -106,18 +113,17 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 		log.Printf("(handling %v) closing connection, reason 'finished handling'\n", remote)
 	}()
 
-	if n.IsStreaming(contentName) {
+	if n.RelayPool.IsStreaming(contentName) {
 
 		log.Printf("(handling %v) i am streaming the content '%v'\n", remote, contentName)
 
-		relay, exists := n.RelayPool[contentName] // get relay for contentName
+		relay, exists := n.RelayPool.GetRelay(contentName) // get relay for contentName
 		if !exists {
 			log.Fatalf("(handling %v) relay does not exist for content '%v'\n", remote, contentName)
 		}
 
-		// todo: changed
 		nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
-		reply(packets.Port(requestId, contentName, nextAddress), conn) // send addr:port
+		Reply(packets.Port(requestId, contentName, nextAddress), conn) // send addr:port
 		log.Printf("(handling %v) sent 'PORT' packet, addr=%v\n", remote, nextAddress)
 
 		err := relay.Add(nextAddress) // add client to relay
@@ -127,16 +133,17 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
-	source, exists := n.IsPositive(requestId)
+	source, exists := n.PositiveRequests.CheckAndGet(requestId)
 	if exists {
 
 		log.Printf("(handling %v) previouly received 'FOUND' packet from '%v', following until source\n", remote, source)
 
 		incoming.Header.Hops++
-		response, err := follow(incoming, source)
+		response, err := Follow(incoming, source)
+
 		if err != nil || response.Header.Flags.OnlyHasFlag(packets.MISS) {
 			log.Printf("(handling %v) received 'MISS' packet from the follow\n", remote)
-			reply(
+			Reply(
 				packets.Miss(requestId, contentName),
 				conn,
 			)
@@ -146,25 +153,24 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 
 		if response.Header.Flags.OnlyHasFlag(packets.PORT) {
 
-			// todo: changed
 			log.Printf("(handling %v) received 'PORT' packet from the follow\n", remote)
 
-			relayPort := strconv.FormatUint(n.NextPort(), 10)
-			relay := NewRelay(contentName, response.Payload.Port, relayPort)
+			relayPort := strconv.FormatUint(n.RelayPool.NextPort(), 10)
+			relay := streamer.NewRelay(contentName, response.Payload.Port, relayPort)
 			log.Printf("(handling %v) created new relay for content '%v' at port '%v'\n", remote, contentName, relay.Port)
 
 			nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
 			err := relay.Add(nextAddress)
 			log.Printf("(handling %v) added address '%v' to relay for '%v'\n", remote, nextAddress, contentName)
 
-			err = n.AddRelay(contentName, relay)
+			err = n.RelayPool.SetRelay(contentName, relay)
 			utils.Check(err)
 			log.Printf("(handling %v) added relay for '%v' to the relay pool\n", remote, contentName)
 
 			go relay.Loop()
 			log.Printf("(handling %v) started relay for content '%v'\n", remote, contentName)
 
-			reply(packets.Port(requestId, contentName, nextAddress), conn)
+			Reply(packets.Port(requestId, contentName, nextAddress), conn)
 
 			log.Printf("(handling %v) sent 'PORT' packet, addr=%v", remote, nextAddress)
 			return
@@ -172,7 +178,7 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 
 	} else {
 		log.Printf("(handling %v) no positive 'FOUND' packets\n", remote)
-		reply(
+		Reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
@@ -180,51 +186,4 @@ func (n *Node) OnStream(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
-}
-
-func reply(response packets.Packet, conn net.Conn) {
-
-	enc, err := response.Encode()
-	utils.Check(err)
-
-	_, err = conn.Write(enc)
-	if err != nil {
-		log.Printf("(handlers.go) could not write to '%v'\n", conn.RemoteAddr().String())
-	}
-
-}
-
-func follow(packet packets.Packet, destination string) (packets.Packet, error) {
-
-	// connection setup
-	conn, err := net.Dial("tcp", destination)
-	if err != nil {
-		log.Printf("(handlers.go) cannot connect to '%v' via tcp\n", destination)
-		return packets.Packet{}, err
-	}
-	defer utils.CloseConnection(conn, destination)
-
-	// packet encoding
-	buffer, err := packet.Encode()
-	utils.Check(err)
-
-	// sending packet to dest
-	_, err = conn.Write(buffer)
-	if err != nil {
-		log.Printf("(handlers.go) cannot write packet to '%v'\n", destination)
-		return packets.Packet{}, err
-	}
-
-	// reading and decoding the response
-	responseBuffer := make([]byte, 1024)
-	n, err := conn.Read(responseBuffer)
-	if err != nil {
-		log.Printf("(handlers.go) cannot read packet from '%v'\n", destination)
-		return packets.Packet{}, err
-	}
-
-	resp, err := packets.DecodePacket(responseBuffer[:n])
-	utils.Check(err)
-
-	return resp, nil
 }

@@ -1,16 +1,15 @@
-package rendezvous
+package node
 
 import (
+	"github.com/gweebg/mcast/internal/packets"
+	"github.com/gweebg/mcast/internal/streamer"
+	"github.com/gweebg/mcast/internal/utils"
 	"log"
 	"net"
 	"strconv"
-
-	"github.com/gweebg/mcast/internal/node"
-	"github.com/gweebg/mcast/internal/packets"
-	"github.com/gweebg/mcast/internal/utils"
 )
 
-func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
+func (n *Node) RendOnDiscovery(incoming packets.Packet, conn net.Conn) {
 	/*
 		did I handle this request already ?
 			yes -> reply with miss
@@ -24,13 +23,13 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	contentName := incoming.Payload.ContentName
 
 	defer func() {
-		r.Requests.Set(requestId, true)
+		n.HandledRequests.Set(requestId, true)
 		log.Printf("(handling %v) request '%v' handled\n", remote, contentName)
 	}() // set packet as handled
 
-	if r.Requests.IsHandled(requestId) {
+	if n.HandledRequests.IsHandled(requestId) {
 		log.Printf("(handling %v) incoming packet refers to a duplicate request\n", remote)
-		reply(
+		Reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
@@ -38,20 +37,20 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 		return
 	} // packet was already handled
 
-	if r.ContentExists(contentName) { // this content is available
+	if n.Servers.ContentExists(contentName) { // this content is available
 
 		log.Printf("(handling %v) content '%v' is available for streaming\n", remote, contentName)
-		reply(
-			packets.Found(requestId, contentName, r.Address.String()),
+		Reply(
+			packets.Found(requestId, contentName, n.Self.SelfIp),
 			conn,
 		)
-		log.Printf("(handling %v) sent 'FOUND' with source address as '%v'\n", remote, r.Address.String())
+		log.Printf("(handling %v) sent 'FOUND' with source address as '%v'\n", remote, n.Self.SelfIp)
 		return
 
 	} else { // this content is not available in any server
 
 		log.Printf("(handling %v) content '%v' is not available for streaming\n", remote, contentName)
-		reply(
+		Reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
@@ -59,7 +58,7 @@ func (r *Rendezvous) OnDiscovery(incoming packets.Packet, conn net.Conn) {
 	}
 }
 
-func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
+func (n *Node) RendOnStream(incoming packets.Packet, conn net.Conn) {
 	/*
 		am I streaming the content ?
 			yes -> reply with port and add address to corresponding relay
@@ -76,11 +75,11 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 		log.Printf("(handling %v) closed connection, reason 'termination'\n", remote)
 	}()
 
-	if r.IsStreaming(contentName) { // if am I streaming contentName
+	if n.RelayPool.IsStreaming(contentName) { // if am I streaming contentName
 
 		log.Printf("(handling %v) stream found for content '%v'\n", remote, contentName)
 
-		relay, exists := r.RelayPool[contentName] // get correct relay for contentName
+		relay, exists := n.RelayPool.GetRelay(contentName)
 		if !exists {
 			log.Fatalf("(handling %v) relay does not exist for content '%v'\n", remote, contentName)
 		}
@@ -88,7 +87,7 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 		// address to add to the relay
 		nextAddress := utils.ReplacePortFromAddressString(remote, relay.Port)
 
-		reply(packets.Port(requestId, contentName, nextAddress), conn) // reply with streaming port
+		Reply(packets.Port(requestId, contentName, nextAddress), conn) // reply with streaming port
 		log.Printf("(handling %v) responded with 'PORT' packet, addr=%v", remote, nextAddress)
 
 		err := relay.Add(nextAddress) // add client to relay
@@ -101,21 +100,21 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	incoming.Header.Hops++
 
 	// the best server to ask the stream from
-	svr := r.GetBestServer(contentName)
+	svr := n.Servers.GetBestServer(contentName)
 	log.Printf("(handling %v) selected server at '%v' for the streaming of '%v'\n", remote, svr.Address, contentName)
 
 	// stopping metrics measurement to avoid conflicts
 	svr.TickerChan <- true
 
 	// clearing out the 'pong' dangling packets
-	b := make([]byte, 1024)
+	b := make([]byte, ReadSize)
 	_, err := svr.Conn.Read(b)
 
 	utils.Check(err)
 	log.Printf("(metrics %v) temporarily stopped metric analysis with server\n", svr.Address)
 
 	defer func() {
-		r.measure(svr.Conn)
+		svr.Measure()
 		log.Printf("(metrics %v) restored metric analysis with server\n", svr.Address)
 	}() // resuming metrics after the talk with the server
 
@@ -127,25 +126,25 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	// send request packet to the best server
 	_, err = svr.Conn.Write(buffer)
 	if err != nil {
-		log.Printf("(servers %v) cannot write packet 'REQ'\n", svr)
+		log.Printf("(servers %v) cannot write packet 'REQ'\n", svr.Address)
 		return
 	}
 	log.Printf("(servers %v) sent packet 'REQ' for '%v'\n", svr.Address, contentName)
 
 	// receive and decode the response
-	responseBuffer := make([]byte, 1024)
-	n, err := svr.Conn.Read(responseBuffer)
+	responseBuffer := make([]byte, ReadSize)
+	s, err := svr.Conn.Read(responseBuffer)
 	if err != nil {
 		log.Printf("(servers %v) cannot read packet\n", svr.Address)
 		return
 	}
 
-	resp, err := packets.Decode[string](responseBuffer[:n])
+	resp, err := packets.Decode[string](responseBuffer[:s])
 	utils.Check(err)
 
 	if !resp.Header.Flag.OnlyHasFlag(packets.CSND) {
 		log.Printf("(servers %v) did not receive port for stream of '%v'\n", conn.RemoteAddr().String(), contentName)
-		reply(
+		Reply(
 			packets.Miss(requestId, contentName),
 			conn,
 		)
@@ -157,8 +156,8 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	log.Printf("(servers %v) server is streaming '%v' at address '%v'\n", svr.Address, contentName, resp.Payload)
 
 	// create new relay
-	relayPort := strconv.FormatUint(r.NextPort(), 10)
-	relay := node.NewRelay(contentName, resp.Payload, relayPort)
+	relayPort := strconv.FormatUint(n.RelayPool.NextPort(), 10)
+	relay := streamer.NewRelay(contentName, resp.Payload, relayPort)
 	log.Printf("(handling %v) created new relay for '%v', relay port is '%v'", remote, contentName, relayPort)
 
 	// add the address of the prev node to the relay
@@ -168,7 +167,7 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	log.Printf("(handling %v) added address '%v' to relay for '%v'\n", remote, nextAddress, contentName)
 
 	// add relay to pool
-	err = r.AddRelay(contentName, relay)
+	err = n.RelayPool.SetRelay(contentName, relay)
 	utils.Check(err)
 	log.Printf("(handling %v) added relay for '%v' to the pool\n", remote, contentName)
 
@@ -186,18 +185,6 @@ func (r *Rendezvous) OnStream(incoming packets.Packet, conn net.Conn) {
 	}
 	log.Printf("(servers %v) sent packet 'OK'\n", svr.Address)
 
-	reply(packets.Port(requestId, contentName, nextAddress), conn) // reply to client in which port I'm streaming
+	Reply(packets.Port(requestId, contentName, nextAddress), conn) // reply to client in which port I'm streaming
 	log.Printf("(handling %v) sent packet 'PORT', addr=%v\n", remote, nextAddress)
-}
-
-func reply(response packets.Packet, conn net.Conn) {
-
-	enc, err := response.Encode()
-	utils.Check(err)
-
-	_, err = conn.Write(enc)
-	if err != nil {
-		log.Printf("(handling %v) could not write, reason 'unknown'\n", conn.RemoteAddr().String())
-	}
-
 }

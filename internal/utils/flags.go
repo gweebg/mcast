@@ -1,4 +1,4 @@
-package flags
+package utils
 
 type FlagType uint8
 

@@ -3,12 +3,11 @@ package packets
 import (
 	"bytes"
 	"encoding/gob"
-
-	"github.com/gweebg/mcast/internal/flags"
+	"github.com/gweebg/mcast/internal/utils"
 )
 
 type PacketHeader struct {
-	Flag flags.FlagType
+	Flag utils.FlagType
 }
 
 type BasePacket[T any] struct {
@@ -45,13 +44,13 @@ func Decode[T any](data []byte) (BasePacket[T], error) {
 }
 
 const (
-	WAKE flags.FlagType = 0b1
-	CONT flags.FlagType = 0b10
-	CSND flags.FlagType = 0b100
-	STOP flags.FlagType = 0b1000
-	OK   flags.FlagType = 0b10000
-	REQ  flags.FlagType = 0b100000
-	PING flags.FlagType = 0b1000000
+	WAKE utils.FlagType = 0b1
+	CONT utils.FlagType = 0b10
+	CSND utils.FlagType = 0b100
+	STOP utils.FlagType = 0b1000
+	OK   utils.FlagType = 0b10000
+	REQ  utils.FlagType = 0b100000
+	PING utils.FlagType = 0b1000000
 )
 
 func Wake() BasePacket[string] {
