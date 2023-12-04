@@ -42,6 +42,14 @@ func (r *RelayDb) GetRelay(content string) (*streamer.Relay, bool) {
 
 }
 
+func (r *RelayDb) DeleteRelay(content string) {
+
+	r.poolLock.Lock()
+	defer r.poolLock.Unlock()
+
+	delete(r.Pool, content)
+}
+
 func (r *RelayDb) SetRelay(content string, relay *streamer.Relay) error {
 
 	r.poolLock.Lock()

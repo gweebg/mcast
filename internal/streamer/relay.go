@@ -23,8 +23,6 @@ type Relay struct {
 	Addresses []*net.UDPAddr // no longer needed as for Connections
 	// Default port for forwarding addresses.
 	Port string
-
-	Connections []*net.UDPConn
 }
 
 // NewRelay creates a new Relay object.
@@ -39,7 +37,6 @@ func NewRelay(contentName string, origin string, port string) *Relay {
 	return &Relay{
 		ContentName: contentName,
 		Addresses:   make([]*net.UDPAddr, 0),
-		Connections: make([]*net.UDPConn, 0),
 		Origin:      origin,
 		receiver:    conn,
 		Port:        port,
@@ -68,13 +65,27 @@ func (r *Relay) Add(address string) error {
 	asUdp, err := net.ResolveUDPAddr("udp", address)
 	utils.Check(err)
 
-	//udpConn, err := net.DialUDP("udp", nil, asUdp)
-	//utils.Check(err)
-
 	r.Addresses = append(r.Addresses, asUdp)
-	//r.Connections = append(r.Connections, udpConn)
 
 	return nil
+}
+
+func (r *Relay) Remove(address string) {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	asUdp, err := net.ResolveUDPAddr("udp", address)
+	utils.Check(err)
+
+	filtered := make([]*net.UDPAddr, 0)
+	for _, addr := range r.Addresses {
+		if addr.AddrPort().Addr() != asUdp.AddrPort().Addr() {
+			filtered = append(filtered, addr)
+		}
+	}
+
+	r.Addresses = filtered
 }
 
 // Loop reads a UDP stream from Origin and forwards it to the addresses specified in Addresses.
