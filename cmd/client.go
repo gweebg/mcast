@@ -2,14 +2,29 @@ package main
 
 import (
 	"flag"
+	"github.com/google/uuid"
 	"log"
 	"net/netip"
-
-	"github.com/google/uuid"
 
 	"github.com/gweebg/mcast/internal/packets"
 	"github.com/gweebg/mcast/internal/utils"
 )
+
+func teardown(requestId uuid.UUID, contentName, address, neighbour string) {
+
+	conn := utils.SetupConnection("tcp", neighbour)
+	log.Printf("connected with neighbour '%v' via tcp\n", neighbour)
+
+	log.Println(address)
+
+	teardownPacket, err := packets.Teardown(requestId, contentName, address).Encode()
+	utils.Check(err)
+
+	_, err = conn.Write(teardownPacket)
+	utils.Check(err)
+
+	log.Printf("sent teardown packet to '%v' for content '%v'\n", address, contentName)
+}
 
 func main() {
 
@@ -73,5 +88,7 @@ func main() {
 
 	log.Printf("content '%v' is streaming at '%v'\n", *content, result.Payload.Port)
 	utils.ListenStream(result.Payload.Port)
+
+	teardown(clientUuid, *content, utils.GetOutboundIP(), *neighbour)
 
 }

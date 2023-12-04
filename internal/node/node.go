@@ -141,6 +141,9 @@ func Handler(conn net.Conn, va ...interface{}) {
 			case packets.STREAM:
 				node.NodeOnStream(p, conn)
 
+			case packets.TEARDOWN:
+				node.NodeOnTeardown(p, conn)
+
 			}
 
 		} else {
@@ -152,6 +155,9 @@ func Handler(conn net.Conn, va ...interface{}) {
 
 			case packets.STREAM:
 				node.RendOnStream(p, conn)
+
+			case packets.TEARDOWN:
+				node.RendOnTeardown(p, conn)
 
 			}
 		}

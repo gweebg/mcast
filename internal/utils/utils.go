@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"reflect"
 	"strings"
-	"time"
 )
 
 func PrintStruct(s interface{}) {
@@ -133,14 +132,10 @@ func ListenStream(address string) {
 			}
 
 			_, err = stdin.Write(buffer[:n])
-			Check(err)
 		}
 	}()
 
-	time.Sleep(100 * time.Millisecond)
-
 	err = ffplay.Wait()
-	Check(err)
 }
 
 func SumSliceInt64(items []int64) int64 {
@@ -151,4 +146,16 @@ func SumSliceInt64(items []int64) int64 {
 	}
 	return sum
 
+}
+
+func GetOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP.String()
 }

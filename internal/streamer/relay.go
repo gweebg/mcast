@@ -9,20 +9,27 @@ import (
 )
 
 type Relay struct {
-	// Name of the video that we are listening to from Origin.
+
+	// ContentName - name of the video that we are listening to from Origin.
 	ContentName string
-	// Address of which the video stream is coming from.
+
+	// Origin - address of which the video stream is coming from.
 	Origin string
 
-	// RWMutex to handle concurrency when adding new addresses.
+	// mu - to handle concurrency when adding new addresses.
 	mu sync.RWMutex
 
-	// UDP listener on Origin.
+	// receiver - udp listener on Origin.
 	receiver *net.UDPConn
-	// Slice containing the addresses (as *UDPAddr) to forward the bytes to.
-	Addresses []*net.UDPAddr // no longer needed as for Connections
-	// Default port for forwarding addresses.
+
+	// Addresses - slice containing the addresses (as *UDPAddr) to forward the bytes to.
+	Addresses []*net.UDPAddr
+
+	// Port - default port for forwarding addresses.
 	Port string
+
+	// StopChannel - channel that is signaled when we want to stop the Loop() routine.
+	StopChannel chan struct{}
 }
 
 // NewRelay creates a new Relay object.
@@ -40,12 +47,14 @@ func NewRelay(contentName string, origin string, port string) *Relay {
 		Origin:      origin,
 		receiver:    conn,
 		Port:        port,
+		StopChannel: make(chan struct{}),
 	}
 }
 
 // Stop stops the reading from Origin by closing the connection.
 func (r *Relay) Stop() error {
 	log.Printf("stopping relay of '%v' with origin at '%v'\n", r.ContentName, r.Origin)
+	r.StopChannel <- struct{}{}
 	return r.receiver.Close()
 }
 
@@ -94,26 +103,34 @@ func (r *Relay) Loop() {
 	buffer := make([]byte, TsMtu*10)
 	for {
 
-		n, _, err := r.receiver.ReadFromUDP(buffer)
-		//log.Printf("reading from %v\n", r.Origin)
-		if err != nil {
-			continue
-		}
+		select {
 
-		r.mu.RLock()
+		case <-r.StopChannel:
+			return
 
-		if len(r.Addresses) > 0 {
-			for _, addr := range r.Addresses {
-				//_, err := conn.Write(buffer[:n])
-				//log.Printf("sent to %v\n", conn.RemoteAddr().String())
-				_, err := r.receiver.WriteToUDP(buffer[:n], addr)
-				if err != nil {
-					// log.Printf("cannot relay packets to %v\n", addr.String())
-					continue
+		default:
+
+			n, _, err := r.receiver.ReadFromUDP(buffer)
+			//log.Printf("reading from %v\n", r.Origin)
+			if err != nil {
+				continue
+			}
+
+			r.mu.RLock()
+
+			if len(r.Addresses) > 0 {
+				for _, addr := range r.Addresses {
+					//_, err := conn.Write(buffer[:n])
+					//log.Printf("sent to %v\n", conn.RemoteAddr().String())
+					_, err := r.receiver.WriteToUDP(buffer[:n], addr)
+					if err != nil {
+						// log.Printf("cannot relay packets to %v\n", addr.String())
+						continue
+					}
 				}
 			}
-		}
 
-		r.mu.RUnlock()
+			r.mu.RUnlock()
+		}
 	}
 }

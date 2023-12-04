@@ -185,6 +185,8 @@ func (n *Node) RendOnStream(incoming packets.Packet, conn net.Conn) {
 	}
 	log.Printf("(servers %v) sent packet 'OK'\n", svr.Address)
 
+	svr.SetStreaming(contentName)
+
 	Reply(packets.Port(requestId, contentName, nextAddress), conn) // reply to client in which port I'm streaming
 	log.Printf("(handling %v) sent packet 'PORT', addr=%v\n", remote, nextAddress)
 }
@@ -221,7 +223,24 @@ func (n *Node) RendOnTeardown(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
-	log.Printf("(handling %v) deleted relay for content '%v'\n", remote, contentName)
-	n.RelayPool.DeleteRelay(contentName)
+	stopPacket, err := packets.Encode[string](packets.Stop(contentName))
 
+	serv, exists := n.Servers.WhoIsStreaming(contentName)
+	if !exists {
+		log.Fatalf("(handling %v) server '%v' should exist, but it doesn't\n", remote, relay.Origin)
+	}
+
+	_, err = serv.Conn.Write(stopPacket)
+	if err != nil {
+		log.Printf("(server %v) could not send 'STOP' packet to server for content '%v'\n", serv.Address, contentName)
+	}
+	log.Printf("(server %v) sent packet 'STOP' to server for content '%v'\n", relay.Origin, contentName)
+
+	log.Printf("(handling %v) deleted relay for content '%v'\n", remote, contentName)
+
+	err = relay.Stop()
+	utils.Check(err)
+
+	n.RelayPool.DeleteRelay(contentName)
+	serv.UnsetStreaming(contentName)
 }

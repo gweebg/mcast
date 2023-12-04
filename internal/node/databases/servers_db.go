@@ -28,6 +28,9 @@ type ServerInfo struct {
 	// Content - slice containing which content the server has available to stream.
 	Content []server.ConfigItem
 
+	// Streaming - slice containing the content that is being streamed at the moment.
+	Streaming []string
+
 	// Conn - tcp connection to the server at Address.
 	Conn *net.TCPConn
 
@@ -35,6 +38,29 @@ type ServerInfo struct {
 	Ticker *time.Ticker
 	// TickerChan - needed to stop the ticker on demand.
 	TickerChan chan bool
+}
+
+func (s *ServerInfo) SetStreaming(contentName string) {
+
+	s.metricLock.Lock()
+	defer s.metricLock.Unlock()
+
+	s.Streaming = append(s.Streaming, contentName)
+}
+
+func (s *ServerInfo) UnsetStreaming(contentName string) {
+
+	s.metricLock.Lock()
+	defer s.metricLock.Unlock()
+
+	filtered := make([]string, 0)
+	for _, content := range s.Streaming {
+		if content != contentName {
+			filtered = append(filtered, content)
+		}
+	}
+
+	s.Streaming = filtered
 }
 
 func (s *ServerInfo) Measure() {
@@ -63,12 +89,8 @@ func (s *ServerInfo) Measure() {
 				_, err = s.Conn.Write(packet)
 				utils.Check(err)
 
-				log.Printf("(metrics %v) sent ping\n", remote)
-
 				_, err = s.Conn.Read(nil)
 				utils.Check(err)
-
-				log.Printf("(metrics %v) got pong\n", remote)
 
 				stopTime := time.Now()
 
@@ -163,6 +185,10 @@ func contains(s []server.ConfigItem, str string) bool {
 // GetBestServer returns the connection to the best server (better metric)
 // with the content (contentName) available.
 func (s *Servers) GetBestServer(contentName string) *ServerInfo {
+
+	s.dataLock.RLock()
+	defer s.dataLock.RUnlock()
+
 	var best *ServerInfo
 
 	for _, srv := range s.Data {
@@ -176,4 +202,20 @@ func (s *Servers) GetBestServer(contentName string) *ServerInfo {
 		}
 	}
 	return best
+}
+
+func (s *Servers) WhoIsStreaming(contentName string) (*ServerInfo, bool) {
+
+	s.dataLock.RLock()
+	defer s.dataLock.RUnlock()
+
+	for _, serv := range s.Data {
+		for _, content := range serv.Streaming {
+			if content == contentName {
+				return serv, true
+			}
+		}
+	}
+
+	return nil, false
 }

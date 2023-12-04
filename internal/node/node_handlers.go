@@ -222,6 +222,10 @@ func (n *Node) NodeOnTeardown(incoming packets.Packet, conn net.Conn) {
 	}
 
 	log.Printf("(handling %v) deleted relay for content '%v'\n", remote, contentName)
+
+	err := relay.Stop()
+	utils.Check(err)
+
 	n.RelayPool.DeleteRelay(contentName)
 
 	incoming.Payload.Port = n.Self.SelfIp
