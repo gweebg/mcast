@@ -188,3 +188,40 @@ func (n *Node) RendOnStream(incoming packets.Packet, conn net.Conn) {
 	Reply(packets.Port(requestId, contentName, nextAddress), conn) // reply to client in which port I'm streaming
 	log.Printf("(handling %v) sent packet 'PORT', addr=%v\n", remote, nextAddress)
 }
+
+func (n *Node) RendOnTeardown(incoming packets.Packet, conn net.Conn) {
+
+	/*
+		am I streaming the content ?
+		no  -> return
+		yes -> am I streaming the content to >1 addresses ?
+			yes -> stop streaming to incoming source
+			no  -> delete the relay all together
+	*/
+
+	contentName := incoming.Payload.ContentName
+	remote := conn.RemoteAddr().String()
+
+	defer func() {
+		utils.CloseConnection(conn, remote)
+		log.Printf("(handling %v) closing connection, reason 'finished handling teardown'\n", remote)
+	}()
+
+	log.Printf("(handling %v) received a packet 'TEARDOWN' for content '%v'\n", remote, contentName)
+
+	if !n.RelayPool.IsStreaming(contentName) {
+		log.Printf("(handling %v) cannot teardown since i'm not streaming content '%v'\n", remote, contentName)
+		return
+	}
+
+	relay, _ := n.RelayPool.GetRelay(contentName)
+	if len(relay.Addresses) > 1 {
+		log.Printf("(handling %v) stopped transmitting content '%v'\n", remote, contentName)
+		relay.Remove(incoming.Payload.Port)
+		return
+	}
+
+	log.Printf("(handling %v) deleted relay for content '%v'\n", remote, contentName)
+	n.RelayPool.DeleteRelay(contentName)
+
+}

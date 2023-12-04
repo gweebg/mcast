@@ -109,8 +109,8 @@ func (n *Node) NodeOnStream(incoming packets.Packet, conn net.Conn) {
 	log.Printf("(handling %v) received 'STREAM' packet for content '%v'\n", remote, contentName)
 
 	defer func() {
-		utils.CloseConnection(conn, conn.RemoteAddr().String())
-		log.Printf("(handling %v) closing connection, reason 'finished handling'\n", remote)
+		utils.CloseConnection(conn, remote)
+		log.Printf("(handling %v) closing connection, reason 'finished handling stream'\n", remote)
 	}()
 
 	if n.RelayPool.IsStreaming(contentName) {
@@ -186,4 +186,52 @@ func (n *Node) NodeOnStream(incoming packets.Packet, conn net.Conn) {
 		return
 	}
 
+}
+
+func (n *Node) NodeOnTeardown(incoming packets.Packet, conn net.Conn) {
+
+	/*
+		am I streaming the content ?
+		no  -> return
+		yes -> am I streaming the content to >1 addresses ?
+			yes -> stop streaming to incoming source
+			no  -> delete the relay all together
+	*/
+
+	contentName := incoming.Payload.ContentName
+	requestId := incoming.Header.RequestId
+	remote := conn.RemoteAddr().String()
+
+	defer func() {
+		utils.CloseConnection(conn, remote)
+		log.Printf("(handling %v) closing connection, reason 'finished handling teardown'\n", remote)
+	}()
+
+	log.Printf("(handling %v) received a packet 'TEARDOWN' for content '%v'\n", remote, contentName)
+
+	if !n.RelayPool.IsStreaming(contentName) {
+		log.Printf("(handling %v) cannot teardown since i'm not streaming content '%v'\n", remote, contentName)
+		return
+	}
+
+	relay, _ := n.RelayPool.GetRelay(contentName)
+	if len(relay.Addresses) > 1 {
+		log.Printf("(handling %v) stopped transmitting content '%v'\n", remote, contentName)
+		relay.Remove(incoming.Payload.Port)
+		return
+	}
+
+	log.Printf("(handling %v) deleted relay for content '%v'\n", remote, contentName)
+	n.RelayPool.DeleteRelay(contentName)
+
+	incoming.Payload.Port = n.Self.SelfIp
+
+	nextHop, exists := n.PositiveRequests.CheckAndGet(requestId)
+	if !exists {
+		log.Fatalf("(handling %v) there should exists a positive answer, but it doesn't\n", remote)
+	}
+
+	log.Printf("(handling %v) found positive next hop, following...\n", remote)
+
+	_, _ = Follow(incoming, nextHop)
 }
