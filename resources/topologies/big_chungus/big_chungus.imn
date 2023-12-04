@@ -138,7 +138,7 @@ node n10 {
     type router
     model host
     network-config {
-	hostname n10
+	hostname S1
 	!
 	interface eth0
 	 ip address 10.0.18.10/24
