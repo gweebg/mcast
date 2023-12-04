@@ -60,14 +60,14 @@ func New(bootstrapper string) *Node {
 
 	case bootstrap.ONode:
 
-		log.Printf("node is an overlay node\n")
+		log.Printf("node is an overlay node at '%v'\n", self.SelfIp)
 		node.PositiveRequests = databases.NewPositiveDb()
 		node.Flooder = streamer.NewFlooder(self.Neighbours)
 		return node
 
 	case bootstrap.RendezvousPoint:
 
-		log.Printf("node is a rendezvous node\n")
+		log.Printf("node is a rendezvous node at '%v'\n", self.SelfIp)
 		serverAddresses := make([]string, 0)
 
 		for _, srv := range self.Neighbours {

@@ -217,6 +217,7 @@ func (n *Node) RendOnTeardown(incoming packets.Packet, conn net.Conn) {
 	}
 
 	relay, _ := n.RelayPool.GetRelay(contentName)
+
 	if len(relay.Addresses) > 1 {
 		log.Printf("(handling %v) stopped transmitting content '%v'\n", remote, contentName)
 		relay.Remove(incoming.Payload.Port)

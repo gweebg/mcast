@@ -60,7 +60,6 @@ const (
 	TEARDOWN utils.FlagType = 0b100000
 )
 
-// todo: swap Port with Address
 func Discovery(requestId uuid.UUID, contentName string) Packet {
 
 	return Packet{
@@ -68,6 +67,7 @@ func Discovery(requestId uuid.UUID, contentName string) Packet {
 			Flags:     DISC,
 			RequestId: requestId,
 			Hops:      0,
+			Source:    "",
 		},
 		Payload: Payload{
 			ContentName: contentName,
@@ -99,6 +99,7 @@ func Miss(requestId uuid.UUID, contentName string) Packet {
 			Flags:     MISS,
 			RequestId: requestId,
 			Hops:      0,
+			Source:    "",
 		},
 		Payload: Payload{
 			ContentName: contentName,
@@ -114,6 +115,7 @@ func Port(requestId uuid.UUID, contentName string, port string) Packet {
 			Flags:     PORT,
 			RequestId: requestId,
 			Hops:      0,
+			Source:    "",
 		},
 		Payload: Payload{
 			ContentName: contentName,
@@ -129,6 +131,7 @@ func Stream(requestId uuid.UUID, contentName string) Packet {
 			Flags:     STREAM,
 			RequestId: requestId,
 			Hops:      0,
+			Source:    "",
 		},
 		Payload: Payload{
 			ContentName: contentName,
@@ -144,6 +147,7 @@ func Teardown(requestId uuid.UUID, contentName string, address string) Packet {
 			Flags:     TEARDOWN,
 			RequestId: requestId,
 			Hops:      0,
+			Source:    "",
 		},
 		Payload: Payload{
 			ContentName: contentName,

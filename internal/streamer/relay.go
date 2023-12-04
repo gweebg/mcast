@@ -84,13 +84,18 @@ func (r *Relay) Remove(address string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	asUdp, err := net.ResolveUDPAddr("udp", address)
-	utils.Check(err)
-
 	filtered := make([]*net.UDPAddr, 0)
 	for _, addr := range r.Addresses {
-		if addr.AddrPort().Addr() != asUdp.AddrPort().Addr() {
+
+		//log.Printf("addr.AddrPort.String : %v\n", addr.AddrPort().String())
+		//log.Printf("addr.String : %v\n", addr.String())
+		//log.Printf("addr.IP.String : %v\n", addr.IP.String())
+
+		//log.Printf("comparing '%v' with '%v'\n", addr.IP.String(), address)
+		if addr.IP.String() != address {
 			filtered = append(filtered, addr)
+		} else {
+			log.Printf("did not add address %v (correct is %v)\n", addr.IP.String(), address)
 		}
 	}
 

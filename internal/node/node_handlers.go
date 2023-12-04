@@ -228,8 +228,6 @@ func (n *Node) NodeOnTeardown(incoming packets.Packet, conn net.Conn) {
 
 	n.RelayPool.DeleteRelay(contentName)
 
-	incoming.Payload.Port = n.Self.SelfIp
-
 	nextHop, exists := n.PositiveRequests.CheckAndGet(requestId)
 	if !exists {
 		log.Fatalf("(handling %v) there should exists a positive answer, but it doesn't\n", remote)
@@ -237,5 +235,6 @@ func (n *Node) NodeOnTeardown(incoming packets.Packet, conn net.Conn) {
 
 	log.Printf("(handling %v) found positive next hop, following...\n", remote)
 
-	_, _ = Follow(incoming, nextHop)
+	nextPacket := packets.Teardown(requestId, contentName, n.Self.SelfIp)
+	_, _ = Follow(nextPacket, nextHop)
 }

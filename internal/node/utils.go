@@ -9,7 +9,7 @@ import (
 	"net"
 )
 
-const ReadSize = 1024
+const ReadSize = 36500
 
 var (
 	Request = packets.BasePacket[string]{
@@ -82,7 +82,7 @@ func Follow(packet packets.Packet, destination string) (packets.Packet, error) {
 	}
 
 	// reading and decoding the response
-	responseBuffer := make([]byte, 1024)
+	responseBuffer := make([]byte, ReadSize)
 	n, err := conn.Read(responseBuffer)
 	if err != nil {
 		log.Printf("(handlers.go) cannot read packet from '%v'\n", destination)
