@@ -10,23 +10,91 @@ import (
 	"net"
 )
 
-type Packet = packets.BasePacket[Node]
-
-const (
-	SEND utils.FlagType = 0b1
-	ERR  utils.FlagType = 0b10
-	GET  utils.FlagType = 0b100
-)
-
 type Bootstrap struct {
-	Config  Config // no need for mutex since its readonly
-	Address string
+	// Config - configuration file containing the structure of the topology.
+	Config Config
+
+	// ListenAddress - address of this node, also obtained from the configuration file.
+	ListenAddress string
 }
 
-func New(filename, address string) *Bootstrap {
-	return &Bootstrap{
-		Config:  utils.MustParseJson[Config](filename, ValidateConfig),
-		Address: address,
+func New(configFilename string) *Bootstrap {
+	b := &Bootstrap{
+		Config: utils.MustParseJson[Config](configFilename, ValidateConfig),
+	}
+
+	b.ListenAddress = "0.0.0.0:" + strings.Split(b.Config.Bootstrapper.SelfIp, ":")[1]
+	return b
+}
+
+func (b *Bootstrap) Listen() {
+
+	l, err := net.Listen("tcp", b.ListenAddress)
+	utils.Check(err)
+
+	defer func() {
+		err := l.Close()
+		utils.Check(err)
+	}()
+
+	log.Printf("(listener %v) bootstrapper listening...\n", b.ListenAddress)
+
+	for {
+		conn, err := l.Accept()
+		utils.Check(err)
+		go b.handle(conn)
+	}
+}
+
+func (b *Bootstrap) handle(conn net.Conn) {
+
+	remote := conn.RemoteAddr().String()
+	readSize := 1024
+	rflag := SEND // response flag
+
+	log.Printf("(handling %v) new client connected\n", remote)
+
+	defer func() {
+		err := conn.Close()
+		utils.Check(err)
+	}()
+
+	// read the connection for incoming data
+	buffer := make([]byte, readSize)
+
+	size, err := conn.Read(buffer)
+	utils.Check(err)
+
+	// decode the incoming packet
+	_, err = decodeAndCheckPacket(buffer[:size]) // p, holds the data from the client.
+	if err != nil {
+		log.Printf("(handling %v) malformed packet, %v\n", remote, err.Error())
+
+		err = answer(Node{}, ERR, conn)
+		if err != nil {
+			log.Fatalf("(handling %v) %v\n", remote, err.Error())
+		}
+
+		return
+	}
+
+	// getting the node
+	node, err := b.GetNode(remote)
+	if err != nil {
+		log.Printf("(handling %v) %v\n", remote, err)
+
+		err = answer(Node{}, ERR, conn)
+		if err != nil {
+			log.Fatalf("(handling %v) %v\n", remote, err.Error())
+		}
+
+		return
+	}
+
+	// reply with the fetched node to the client
+	err = answer(node, rflag, conn)
+	if err != nil {
+		log.Fatalf("(handling %v) %v\n", remote, err.Error())
 	}
 }
 
@@ -40,74 +108,6 @@ func (b *Bootstrap) GetNode(addrPort string) (Node, error) {
 
 	// gob cannot encode nil values, so we set the default for a Node
 	return Node{}, errors.New("no records found for " + addr)
-}
-
-func (b *Bootstrap) Listen() {
-
-	l, err := net.Listen("tcp", b.Address)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
-	defer func(l net.Listener) {
-		err := l.Close()
-		if err != nil {
-			log.Fatal("could not close the connection.")
-		}
-	}(l) // Closing the connection once the function ends.
-
-	log.Println("listening...")
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-
-		go b.handle(conn)
-	} // Infinite loop that attends incoming clients.
-}
-
-func (b *Bootstrap) handle(conn net.Conn) {
-
-	rAddr := conn.RemoteAddr().String()
-	rflag := SEND // response flag
-
-	log.Printf("(%v) new client connected \n", rAddr)
-
-	defer func(conn net.Conn) {
-		err := conn.Close()
-		if err != nil {
-			log.Fatalf("unable to close connection with %v\n", rAddr)
-		}
-		log.Printf("(%v) closed connection\n", conn.RemoteAddr().String())
-	}(conn) // defer the closing of the connection.
-
-	// read the connection for incoming data.
-	buffer := make([]byte, 1024)
-	size, err := conn.Read(buffer)
-	if err != nil {
-		log.Fatalf("could not read from %v\n", rAddr)
-	}
-
-	_, err = decodeAndCheckPacket(buffer[:size]) // p, holds the data from the client.
-	if err != nil {
-		log.Printf("(%v) %v\n", rAddr, err)
-		rflag = ERR
-	}
-
-	// todo: skip db check if rflag already ERR
-	addr := conn.RemoteAddr().String() // conn.RemoteAddr as a netip.Addr
-
-	r, err := b.GetNode(addr)
-	if err != nil {
-		log.Printf("(%v) %v\n", rAddr, err)
-		rflag = ERR
-	}
-
-	ok := answer(r, rflag, conn)
-	if !ok {
-		log.Fatalf("error while encoding or sending the response")
-	}
 }
 
 func decodeAndCheckPacket(data []byte) (p packets.BasePacket[string], err error) {
@@ -124,27 +124,25 @@ func decodeAndCheckPacket(data []byte) (p packets.BasePacket[string], err error)
 	return p, err
 }
 
-func answer(node Node, flag utils.FlagType, conn net.Conn) bool {
+func answer(node Node, flag utils.FlagType, conn net.Conn) error {
 
-	resp := Packet{
+	resp := packets.BasePacket[Node]{
 		Header: packets.PacketHeader{
 			Flag: flag,
 		},
 		Payload: node,
 	} // response packet
 
-	encResp, err := packets.Encode[Node](packets.BasePacket[Node](resp))
+	encResp, err := packets.Encode[Node](resp)
 	if err != nil {
-		log.Print("cannot encode response packet")
-		return false
+		return errors.New("cannot encode response packet")
 	}
 
 	s, err := conn.Write(encResp)
 	if err != nil {
-		log.Print("cannot write to socket")
-		return false
+		return errors.New("cannot write to socket")
 	}
 
-	log.Printf("(%v) responded with %v bytes\n", conn.RemoteAddr().String(), s)
-	return true
+	log.Printf("(handling %v) responded with %v bytes\n", conn.RemoteAddr().String(), s)
+	return nil
 }
