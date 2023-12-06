@@ -76,6 +76,8 @@ func (s *Streamer) encodeTransportStream() (err error) {
 	)
 
 	err = ffmpeg.Run()
+
+	log.Printf("finished enconding video '%v'\n", s.ContentName)
 	return err
 }
 

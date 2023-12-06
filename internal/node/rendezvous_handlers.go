@@ -107,10 +107,10 @@ func (n *Node) RendOnStream(incoming packets.Packet, conn net.Conn) {
 	svr.TickerChan <- true
 
 	// clearing out the 'pong' dangling packets
-	b := make([]byte, ReadSize)
-	_, err := svr.Conn.Read(b)
+	//b := make([]byte, ReadSize)
+	//_, err := svr.Conn.Read(b)
 
-	utils.Check(err)
+	//utils.Check(err)
 	log.Printf("(metrics %v) temporarily stopped metric analysis with server\n", svr.Address)
 
 	defer func() {

@@ -20,7 +20,7 @@ type ServerInfo struct {
 
 	// Jitter - current jitter of the server.
 	Jitter      float64
-	prevLatency float64
+	prevLatency int64
 
 	// metricLock - lock to prevent race conditions.
 	metricLock sync.Mutex
@@ -89,23 +89,23 @@ func (s *ServerInfo) Measure() {
 				_, err = s.Conn.Write(packet)
 				utils.Check(err)
 
-				_, err = s.Conn.Read(nil)
+				trash := make([]byte, 1024)
+				_, err = s.Conn.Read(trash)
 				utils.Check(err)
 
 				stopTime := time.Now()
 
-				elapsedTime := stopTime.Sub(startTime).Milliseconds()
+				elapsedTime := stopTime.Sub(startTime).Microseconds()
 
 				s.metricLock.Lock()
 
 				s.latencyHistory = append(s.latencyHistory, elapsedTime)
 				s.Latency = utils.SumSliceInt64(s.latencyHistory) / int64(len(s.latencyHistory))
 
-				if s.prevLatency == -1 {
-					s.Jitter = 1.0
-				}
+				s.Jitter = float64(s.prevLatency) / float64(s.Latency)
+				s.prevLatency = s.Latency
 
-				s.Jitter = s.prevLatency / float64(s.Latency)
+				log.Printf("(metrics %v) del=%v ; lat=%v ; jit=%v\n", s.Address, elapsedTime, s.Latency, s.Jitter)
 
 				s.metricLock.Unlock()
 			}
@@ -118,7 +118,7 @@ func (s *ServerInfo) Measure() {
 // a weight of 60% while the Jitter is given a weight of 40%. Packet loss is not accounted
 // for the metrics calculation, yet.
 func (s *ServerInfo) CalculateMetrics() float64 {
-	return (float64(s.Latency)*0.6 + s.Jitter*0.4) / 100
+	return float64(s.Latency)*0.6 + float64(s.Jitter)*0.4
 }
 
 type Servers struct {
@@ -137,7 +137,8 @@ func NewServers(addrs []string) *Servers {
 	for _, addr := range addrs {
 		s.Data[addr] = &ServerInfo{
 			latencyHistory: make([]int64, 0),
-			prevLatency:    -1,
+
+			Jitter: 0.,
 
 			Address:    addr,
 			Content:    make([]server.ConfigItem, 0),
@@ -199,6 +200,7 @@ func (s *Servers) GetBestServer(contentName string) *ServerInfo {
 
 		if best == nil || best.CalculateMetrics() < srv.CalculateMetrics() {
 			best = srv
+			log.Printf("(servers) comparing servers '%v' (%v) with '%v' (%v)\n", srv.Address, srv.CalculateMetrics(), best.Address, best.CalculateMetrics())
 		}
 	}
 	return best
