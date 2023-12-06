@@ -139,7 +139,7 @@ func (s *Streamer) cleanup(cmd *exec.Cmd, close bool) {
 // Firstly sets up the mpeg-ts resources, then streams the content via udp to via conn.
 func (s *Streamer) Stream() {
 
-	s.IsStreaming = true // todo: not updating ?
+	s.IsStreaming = true
 
 	ts := s.SetupVideo()
 

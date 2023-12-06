@@ -5,6 +5,7 @@ import (
 	"github.com/gweebg/mcast/internal/utils"
 	"log"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -87,11 +88,10 @@ func (r *Relay) Remove(address string) {
 	filtered := make([]*net.UDPAddr, 0)
 	for _, addr := range r.Addresses {
 
-		//log.Printf("addr.AddrPort.String : %v\n", addr.AddrPort().String())
-		//log.Printf("addr.String : %v\n", addr.String())
-		//log.Printf("addr.IP.String : %v\n", addr.IP.String())
+		if strings.Contains(address, ":") {
+			address = strings.Split(address, ":")[0]
+		}
 
-		//log.Printf("comparing '%v' with '%v'\n", addr.IP.String(), address)
 		if addr.IP.String() != address {
 			filtered = append(filtered, addr)
 		} else {

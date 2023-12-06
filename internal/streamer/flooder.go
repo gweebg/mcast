@@ -64,7 +64,7 @@ func (f Flooder) sendTo(dest netip.AddrPort, content packets.Packet, wg *sync.Wa
 	defer wg.Done()
 
 	// connection setup
-	conn, err := net.Dial("tcp", dest.String()) // todo: check this value
+	conn, err := net.Dial("tcp", dest.String())
 	if err != nil {
 		log.Printf("cannot connect to '%v' via tcp\n%v", dest.String(), err.Error())
 		return
