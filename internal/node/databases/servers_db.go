@@ -105,6 +105,7 @@ func (s *ServerInfo) Measure() {
 				s.Jitter = float64(s.prevLatency) / float64(s.Latency)
 				s.prevLatency = s.Latency
 
+				// todo: remove
 				log.Printf("(metrics %v) del=%v ; lat=%v ; jit=%v\n", s.Address, elapsedTime, s.Latency, s.Jitter)
 
 				s.metricLock.Unlock()
@@ -190,7 +191,7 @@ func (s *Servers) GetBestServer(contentName string) *ServerInfo {
 	s.dataLock.RLock()
 	defer s.dataLock.RUnlock()
 
-	var best *ServerInfo
+	var best *ServerInfo = nil
 
 	for _, srv := range s.Data {
 
@@ -198,8 +199,9 @@ func (s *Servers) GetBestServer(contentName string) *ServerInfo {
 			continue
 		}
 
-		if best == nil || best.CalculateMetrics() < srv.CalculateMetrics() {
+		if best == nil || best.CalculateMetrics() > srv.CalculateMetrics() {
 			best = srv
+			// todo: remove
 			log.Printf("(servers) comparing servers '%v' (%v) with '%v' (%v)\n", srv.Address, srv.CalculateMetrics(), best.Address, best.CalculateMetrics())
 		}
 	}
